@@ -6,19 +6,14 @@
 
 ## Summary
 
-There is now one project that is especially close to the UPS/Cockpit part of `cockpit-ups-wol`:
+The most relevant projects currently identified are:
 
-- [`deviationist/cockpit-upside`](https://github.com/deviationist/cockpit-upside) — Cockpit plugin for NUT, including monitoring, `upscmd`, `upsrw`, setup wizard, remote NUT support and safe configuration editing.
+- [`hardwarehaven/wolnut`](https://github.com/hardwarehaven/wolnut) — very close to the planned persistent recovery agent: monitors NUT, remembers which hosts were online before an outage, persists state, waits for utility/battery recovery, and sends Wake-on-LAN packets.
+- [`deviationist/cockpit-upside`](https://github.com/deviationist/cockpit-upside) — very close to the planned Cockpit/NUT frontend: NUT monitoring, `upscmd`, `upsrw`, setup wizard, remote NUT support and safe configuration editing.
+- [`Trugamr/wol`](https://github.com/Trugamr/wol) — compact Go Wake-on-LAN implementation with a clean, testable magic-packet package.
+- [`exelban/nutshell`](https://github.com/exelban/nutshell) — compact Go NUT client that may be useful if the agent later moves away from spawning `upsc`.
 
-For Wake-on-LAN, the strongest small reusable implementation remains:
-
-- [`Trugamr/wol`](https://github.com/Trugamr/wol) — small Go implementation with a clean, testable magic-packet package under the MIT license.
-
-For a possible future native NUT protocol client:
-
-- [`exelban/nutshell`](https://github.com/exelban/nutshell) — compact Go NUT client under the MIT license.
-
-The recommended approach is **selective reuse**, not combining whole applications. `cockpit-ups-wol` has requirements that these projects do not cover together: persistent outage state, ordered host shutdown, controller-last shutdown, automatic recovery after AC returns, waiting for UPS recharge to a configurable threshold (default 80%), WoL sequencing, and Synology-oriented deployment.
+The recommended strategy remains **selective reuse**. No single upstream project covers the complete `cockpit-ups-wol` design: ordered shutdown, controller-last shutdown, Synology support, persistent outage state, stable-AC recovery gating, configurable battery threshold defaulting to 80%, ordered host restoration, Cockpit management, and multi-distribution installation.
 
 ---
 
@@ -26,218 +21,334 @@ The recommended approach is **selective reuse**, not combining whole application
 
 | Project | Area | License | Reuse value | Recommended use |
 |---|---|---:|---|---|
+| [`hardwarehaven/wolnut`](https://github.com/hardwarehaven/wolnut) | NUT + outage recovery + WoL | MIT | **Very high** | Reuse concepts and selected state/recovery code after fixing safety issues |
 | [`deviationist/cockpit-upside`](https://github.com/deviationist/cockpit-upside) | Cockpit + NUT | LGPL-2.1 | **Very high** | Reuse/adapt Cockpit/NUT patterns and selected code if license strategy is compatible |
-| [`cockpit-project/starter-kit`](https://github.com/cockpit-project/starter-kit) | Cockpit plugin foundation | LGPL-2.1 | **Very high** | Use as project/frontend build foundation |
+| [`cockpit-project/starter-kit`](https://github.com/cockpit-project/starter-kit) | Cockpit plugin foundation | LGPL-2.1 | **Very high** | Use as frontend/build foundation |
 | [`Trugamr/wol`](https://github.com/Trugamr/wol) | Wake-on-LAN | MIT | **Very high** | Reuse or adapt the small `magicpacket` package |
-| [`networkupstools/nut`](https://github.com/networkupstools/nut) | UPS backend/protocol | Project-specific/mixed | **Essential reference** | Use installed NUT runtime and official behavior; avoid copying code without file-level license review |
-| [`SuperioOne/nut_webgui`](https://github.com/SuperioOne/nut_webgui) | NUT web UI | Apache-2.0 | **High** | UX, capability and NUT-operation reference; selective compatible reuse possible |
-| [`exelban/nutshell`](https://github.com/exelban/nutshell) | Native NUT Go client | MIT | **High, later** | Adapt if replacing `upsc` polling with direct NUT TCP protocol access |
-| [`seriousm4x/UpSnap`](https://github.com/seriousm4x/UpSnap) | WoL management UI | MIT | **Medium/high** | Feature/UX reference; avoid importing its larger application architecture |
-| [`geerlingguy/pi-nut`](https://github.com/geerlingguy/pi-nut) | NUT appliance/configuration | GPL-3.0 | **Medium** | Configuration/deployment reference; avoid direct code reuse unless GPL implications are accepted |
-| [`cockpit-project/cockpit`](https://github.com/cockpit-project/cockpit) | Cockpit internals/API | Per-component/project licensing | **Essential reference** | API/security/systemd/PatternFly examples; check individual file licenses before copying |
-| [`ahmetozer/wakeonlan`](https://github.com/ahmetozer/wakeonlan) | Go WoL service | No detected license | **Low for code reuse** | Architecture/API reference only unless permission/license is clarified |
+| [`networkupstools/nut`](https://github.com/networkupstools/nut) | UPS backend/protocol | Project-specific/mixed | **Essential reference** | Use installed NUT runtime and official behavior; avoid vendoring source without file-level license review |
+| [`SuperioOne/nut_webgui`](https://github.com/SuperioOne/nut_webgui) | NUT web UI | Apache-2.0 | **High** | UX/capability reference; selective compatible reuse possible |
+| [`exelban/nutshell`](https://github.com/exelban/nutshell) | Native NUT Go client | MIT | **High, later** | Adapt if replacing `upsc` polling with direct NUT TCP access |
+| [`seriousm4x/UpSnap`](https://github.com/seriousm4x/UpSnap) | WoL management UI | MIT | **Medium/high** | Feature/UX reference; avoid importing its larger application stack |
+| [`geerlingguy/pi-nut`](https://github.com/geerlingguy/pi-nut) | NUT appliance/configuration | GPL-3.0 | **Medium** | Deployment/configuration reference; avoid direct reuse unless GPL implications are accepted |
+| [`cockpit-project/cockpit`](https://github.com/cockpit-project/cockpit) | Cockpit internals/API | Per-component/project licensing | **Essential reference** | API/security/systemd/journal/PatternFly reference |
+| [`ahmetozer/wakeonlan`](https://github.com/ahmetozer/wakeonlan) | Go WoL service | No detected license | **Low for code reuse** | Reference only unless licensing is clarified |
 
 ---
 
-# 1. deviationist/cockpit-upside
+# 1. hardwarehaven/wolnut
+
+Repository: <https://github.com/hardwarehaven/wolnut>  
+Language: Python  
+License: MIT  
+Runtime: Python 3.11+, Click, PyYAML, `wakeonlan`  
+Status at review: repository active as a public project; latest source push observed in December 2025
+
+## Why it is especially relevant
+
+WOLNUT implements almost the same recovery concept planned for `cockpit-ups-wol-agent`:
+
+```text
+NUT/upsc
+   │
+   ▼
+observe UPS status
+   │
+   ├── detect OB
+   ├── record hosts that were online
+   ├── persist outage/client state
+   │
+   ▼
+wait for utility restoration
+   │
+   ▼
+wait for battery threshold
+   │
+   ▼
+send WoL to hosts that were online before outage
+```
+
+Its documented behavior includes:
+
+- NUT monitoring through `upsc`
+- client state checks via ping
+- recording which clients were online before the outage
+- persistent JSON state across process/controller restart
+- configurable restore delay
+- configurable minimum battery percentage
+- WoL retries
+- client recovery timeout
+- automatic MAC discovery using ARP
+- Docker and standalone execution
+
+Example upstream configuration:
+
+```yaml
+wake_on:
+  restore_delay_sec: 30
+  min_battery_percent: 25
+  client_timeout_sec: 600
+  reattempt_delay: 30
+```
+
+For `cockpit-ups-wol`, the equivalent default battery threshold remains **80%**, not WOLNUT's lower example/default values.
+
+## Strong code/design candidates
+
+### Persistent host state
+
+WOLNUT's `ClientStateTracker` is useful reference code for:
+
+- `was_online_before_battery`
+- current online state
+- WoL-attempt state
+- WoL retry timestamps
+- per-host skip state
+- persisted UPS-on-battery state
+
+It also uses a temporary file followed by replacement when saving state. That aligns with the project's requirement for atomic state persistence.
+
+Recommended reuse approach:
+
+```text
+Study/adapt state model
+       +
+retain atomic-write concept
+       +
+add explicit state/schema version
+       +
+add outage ID/state-machine state
+       +
+add crash-safe validation
+```
+
+### Recovery loop
+
+The upstream recovery loop demonstrates a compact working implementation of:
+
+- detecting `OB`
+- detecting restored `OL`
+- waiting for a battery threshold
+- waiting for a restore delay
+- restoring only previously-running hosts
+- retrying WoL
+
+This should inform the implementation of `cockpit-ups-wol-agent` rather than designing the whole loop from scratch.
+
+## Safety issues that MUST NOT be copied unchanged
+
+WOLNUT is a useful source, but its current implementation is not strict enough for the safety policy of this project.
+
+### 1. Missing battery data defaults to 100%
+
+Its helper effectively behaves like:
+
+```python
+ups_status.get("battery.charge", 100)
+```
+
+That means a UPS which does not report `battery.charge`, or a failed status read, can appear to have a full battery.
+
+`cockpit-ups-wol` SHALL instead treat missing battery data as **unknown** and use the configured fallback policy:
+
+```text
+percentage
+runtime
+time-based recharge
+manual
+```
+
+Never assume 100%.
+
+### 2. Missing UPS status defaults to OL
+
+When `upsc` fails, WOLNUT returns an empty status dictionary and later defaults `ups.status` to `OL`.
+
+This can turn a communication failure into an apparent "utility online" condition.
+
+`cockpit-ups-wol-agent` SHALL instead distinguish:
+
+```text
+OL
+OB
+UNKNOWN / COMMUNICATION_FAILURE
+```
+
+Recovery MUST NOT start from an unknown UPS state.
+
+### 3. Restart recovery resets state too early
+
+When WOLNUT loads state indicating the UPS had been on battery, it marks a restoration event and immediately resets stored state. A restart at the wrong point in an outage can therefore lose the original "was online before outage" information or re-snapshot hosts after they have already shut down.
+
+Our agent SHALL preserve the outage snapshot until the outage reaches a terminal state:
+
+```text
+NORMAL
+ON_BATTERY
+SHUTDOWN_IN_PROGRESS
+WAITING_FOR_AC
+RECOVERY_WAIT
+RESTORE_HOSTS
+NORMAL
+```
+
+The snapshot should only be cleared after successful completion or explicit administrative reset.
+
+### 4. Simpler state machine than required
+
+WOLNUT mainly handles recovery. `cockpit-ups-wol` additionally needs:
+
+- ordered shutdown
+- multiple shutdown methods (`nut`, `ssh`, `command`, `none`)
+- controller-last shutdown
+- network-readiness gating
+- stable-AC timer resistant to power flapping
+- ordered recovery/wake priorities
+- Synology-specific integration
+- explicit failure states and journald events
+
+So the WOLNUT loop should be treated as a starting pattern, not the final agent architecture.
+
+## Python vs Go decision
+
+WOLNUT is small and readable, but importing it wholesale would introduce a Python runtime plus Click, PyYAML and `wakeonlan` dependencies.
+
+The current `cockpit-ups-wol` goal is to keep the appliance small and provide architecture-specific prebuilt artifacts. Therefore the preferred implementation may still be Go for `wolctl` and possibly for the persistent agent.
+
+The algorithm/state model can be reused independently of language.
+
+## Assessment
+
+**Recommended action: ADD TO THE HIGH-PRIORITY REUSE LIST.**
+
+WOLNUT is the strongest existing reference for the **recovery-agent** portion of this project.
+
+Recommended reuse:
+
+- state model concepts
+- atomic state-file strategy
+- "restore only previously-online hosts" behavior
+- configurable battery threshold
+- retry and timeout concepts
+- tests/scenarios around restart persistence
+
+Do not reuse unchanged:
+
+- fail-open UPS-state defaults
+- 100% fallback for missing battery charge
+- early state reset on restart
+- simplistic outage/recovery state handling
+
+If source is copied or substantially adapted, preserve the MIT notice and document the exact upstream files/commit in `THIRD_PARTY_NOTICES.md`.
+
+---
+
+# 2. deviationist/cockpit-upside
 
 Repository: <https://github.com/deviationist/cockpit-upside>  
 Language: TypeScript / React / Cockpit  
 License: LGPL-2.1  
 Status at review: active; recent commits in September 2026
 
-## Why it is highly relevant
+UPSide is the strongest existing reference for the Cockpit/NUT frontend. It already demonstrates:
 
-UPSide is a Cockpit extension specifically for Network UPS Tools. Its architecture closely matches the UPS-facing part of this project:
-
-```text
-Cockpit UI
-    │
-    ▼
-cockpit.spawn()
-    │
-    ├── upsc
-    ├── upsrw
-    └── upscmd
-    │
-    ▼
-NUT upsd
-```
-
-Its documented functionality includes:
-
-- local and remote NUT sources
+- PatternFly/Cockpit project structure
+- `cockpit.spawn()` wrappers around `upsc`
 - multiple UPS devices
-- PatternFly/Cockpit UI
-- `upsc` polling through `cockpit.spawn()`
-- `upscmd` instant commands
-- `upsrw` writable variable editing
+- `upscmd` controls
+- `upsrw` writable values
 - capability-driven UI
-- control-mode privilege separation
 - dangerous-command confirmation
+- local/remote NUT sources
 - NUT setup wizard
 - `nut-scanner` based UPS detection
-- standalone / network-server / network-client roles
-- NUT configuration backup before modification
-- low-battery `upsmon` configuration
-- service/setup diagnostics
-- historical data integration using PCP
+- standalone/network-server/network-client roles
+- config preview and backup
+- least-privilege NUT control users
+- low-battery `upsmon` setup
 
-## What should be reused
+Recommended reuse areas:
 
-This is the strongest source for direct Cockpit-side reuse.
+1. Cockpit project/build layout
+2. NUT data parsing/normalization
+3. `upsc`, `upsrw`, `upscmd` Cockpit wrappers
+4. multi-UPS model
+5. status rendering and capability detection
+6. setup wizard patterns
+7. safe configuration-write workflow
+8. remote NUT handling
 
-Candidate areas:
+Do not put outage/recovery policy in the frontend. That belongs in `cockpit-ups-wol-agent`.
 
-1. **Cockpit project structure and build system**
-2. **NUT data parsing and normalization**
-3. **`cockpit.spawn()` wrappers for `upsc`, `upsrw` and `upscmd`**
-4. **Multi-UPS data model**
-5. **UPS status rendering**
-6. **Capability-driven controls**
-7. **Risk grouping for UPS instant commands**
-8. **PatternFly setup wizard patterns**
-9. **NUT configuration preview/backup/write workflow**
-10. **Remote NUT source support**
-11. **Least-privilege control-user design**
-12. **USB/NUT detection workflow using `nut-scanner`**
-
-## What should not simply be copied
-
-UPSide deliberately has no persistent power-management backend service. `cockpit-ups-wol` does require one because automatic recovery must continue without Cockpit and across controller reboots.
-
-Do not adopt an architecture where Cockpit itself owns:
-
-- outage state machine
-- host shutdown sequencing
-- persistent recovery state
-- automatic 80% battery recovery threshold
-- recovery sequencing
-- WoL restoration policy
-
-Those belong in `cockpit-ups-wol-agent`.
-
-## Assessment
-
-**Recommended action: HIGH-PRIORITY reuse candidate.**
-
-Before implementing our UPS frontend, compare the starter-kit baseline against UPSide and selectively port mature UPS-specific components instead of recreating them.
-
-If code is copied or substantially adapted, retain required LGPL notices and record the source in `THIRD_PARTY_NOTICES.md`.
+**Assessment: HIGH-PRIORITY frontend reuse candidate.**
 
 ---
 
-# 2. cockpit-project/starter-kit
+# 3. cockpit-project/starter-kit
 
 Repository: <https://github.com/cockpit-project/starter-kit>  
-License: LGPL-2.1  
-Status at review: actively maintained
+License: LGPL-2.1
 
-The official Cockpit starter kit provides the preferred baseline for:
+Use as the authoritative foundation for:
 
 - `manifest.json`
-- React integration
-- PatternFly integration
+- React/PatternFly integration
 - Cockpit JavaScript APIs
 - build tooling
-- test setup
-- packaging patterns
-- development installation
+- development/testing layout
+- packaging conventions
 
-## Assessment
+Where UPSide differs, use the starter kit for current Cockpit conventions and UPSide for NUT-specific implementation ideas.
 
-**Recommended action: use as the frontend/project foundation.**
-
-Where UPSide already extends this starter kit with useful NUT-specific behavior, use UPSide as the specialized reference and the starter kit as the authoritative baseline for current Cockpit conventions.
+**Assessment: use as frontend/build foundation.**
 
 ---
 
-# 3. Trugamr/wol
+# 4. Trugamr/wol
 
 Repository: <https://github.com/Trugamr/wol>  
 Language: Go  
-License: MIT  
-Status at review: active
+License: MIT
 
-This project contains a particularly clean package:
-
-```text
-magicpacket/
-```
-
-Its implementation builds the standard WoL packet as:
+The `magicpacket` package cleanly implements the standard 102-byte WoL packet:
 
 ```text
 6 × 0xFF
 +
-16 × target MAC address
+16 × target MAC
 ```
 
-for the standard 102-byte payload.
+It separates packet construction, serialization, `io.Writer` output and UDP broadcast, making it easy to test.
 
-The package separates:
+It also handles both global and subnet-directed broadcast targets.
 
-- packet construction
-- byte serialization
-- writing to an `io.Writer`
-- UDP broadcast
-
-That makes unit testing straightforward without requiring a real network interface.
-
-It also supports both global and subnet-directed broadcast targets such as:
-
-```text
-255.255.255.255:9
-192.168.1.255:9
-```
-
-which aligns well with the `cockpit-ups-wol` multi-network requirements.
-
-## Recommended reuse
-
-Reuse or adapt the small magic-packet implementation for `wolctl` rather than implementing WoL from scratch.
-
-Suggested local structure:
+Recommended local use:
 
 ```text
 wolctl/
 └── magicpacket/
-    ├── packet.go
-    └── packet_test.go
 ```
 
-Extend it with project-specific features:
+Add project-specific:
 
-- configuration by host ID
-- interface selection
-- MAC validation
-- IPv4 broadcast selection
-- retry count
-- optional host-state verification
+- host IDs
+- interface/broadcast selection
+- validation
+- retry policy
+- status verification
 - structured exit codes/logging
 
-## License handling
-
-MIT reuse is straightforward, but the original copyright/license notice must be retained.
-
-Add attribution to `THIRD_PARTY_NOTICES.md` if code is incorporated.
-
-## Assessment
-
-**Recommended action: direct code reuse candidate.**
+**Assessment: strong direct-code-reuse candidate, with MIT attribution.**
 
 ---
 
-# 4. networkupstools/nut
+# 5. networkupstools/nut
 
-Repository: <https://github.com/networkupstools/nut>  
-Language: primarily C  
-Project: authoritative Network UPS Tools implementation
+Repository: <https://github.com/networkupstools/nut>
 
-This is the authoritative source for:
+This is the authoritative source for NUT behavior:
 
-- NUT network protocol behavior
-- status tokens
+- protocol semantics
+- UPS status tokens
 - drivers
 - `upsd`
 - `upsmon`
@@ -245,320 +356,172 @@ This is the authoritative source for:
 - `upsrw`
 - `upscmd`
 - `nut-scanner`
-- configuration semantics
-- primary/secondary monitoring behavior
+- primary/secondary behavior
 
-## Recommended use
+Use NUT as an external system/runtime dependency instead of embedding or forking it.
 
-Use NUT as an installed system dependency rather than embedding or forking it.
+Whenever another project disagrees with NUT syntax or behavior, official NUT behavior wins.
 
-For v0.x:
+Because the repository does not present one simple repository-wide SPDX license, inspect file-level licensing before copying source.
 
-```text
-cockpit-ups-wol
-    │
-    ├── upsc
-    ├── upsrw
-    ├── upscmd
-    └── upsmon / upsd configuration
-```
-
-The official source is the final behavioral reference whenever another project disagrees about NUT syntax or semantics.
-
-## Licensing caution
-
-GitHub does not represent the repository with a single SPDX license. NUT contains project/file-specific licensing history.
-
-Therefore:
-
-- using NUT executables as external runtime dependencies is preferred
-- do not copy NUT source code into this repository without reviewing the specific source file's license
-
-## Assessment
-
-**Recommended action: essential runtime dependency and specification reference; do not vendor.**
+**Assessment: essential runtime/specification reference; do not vendor by default.**
 
 ---
 
-# 5. SuperioOne/nut_webgui
+# 6. SuperioOne/nut_webgui
 
 Repository: <https://github.com/SuperioOne/nut_webgui>  
 Language: Rust  
-License: Apache-2.0  
-Status at review: active
+License: Apache-2.0
 
-`nut_webgui` is useful for understanding how a mature dedicated NUT UI exposes:
+Useful as a mature NUT UX/behavior reference for:
 
-- UPS state
 - variables
 - writable variables
 - instant commands
 - authentication
-- multiple UPS devices
-- remote NUT servers
-- command/error presentation
-
-## Recommended reuse
-
-Primarily use it as a behavior and UX reference.
-
-Potential selective reuse areas after license review:
-
-- NUT response handling concepts
-- variable categorization
-- control flow around commands and writable values
+- multi-UPS handling
+- remote NUT
 - error/state presentation
 
-Do not import its entire Rust web-server architecture because `cockpit-ups-wol` already has Cockpit as its management frontend and should avoid another HTTP server.
+Do not import its web-server architecture because Cockpit already provides the management UI/server layer.
 
-## Assessment
-
-**Recommended action: strong NUT behavior/UX reference; selective reuse only.**
+**Assessment: strong UX/behavior reference; selective reuse only.**
 
 ---
 
-# 6. exelban/nutshell
+# 7. exelban/nutshell
 
 Repository: <https://github.com/exelban/nutshell>  
 Language: Go  
 License: MIT
 
-NutShell includes a compact native Go client for the NUT TCP protocol.
-
-The client demonstrates:
+NutShell includes a small native NUT TCP client demonstrating:
 
 - TCP connection to `upsd`
 - `VER`
 - `NETVER`
 - `LIST UPS`
-- command/response framing
-- UPS discovery
-- connection timeouts
 - authentication
-
-## Why it may matter later
-
-The current architecture intentionally uses NUT command-line tools first because that is simpler and lets the distribution's NUT implementation own protocol compatibility.
-
-If the persistent agent later needs higher-frequency polling or wants to avoid repeatedly spawning `upsc`, a native Go NUT client could become useful:
-
-```text
-cockpit-ups-wol-agent
-       │
-       ▼
- native NUT TCP client
-       │
-       ▼
-      upsd
-```
-
-## Required adaptation
-
-Do not copy the client unchanged.
-
-The current implementation authenticates during every `Connect()`. NUT permits many read-only queries without authenticated control credentials depending on server configuration, and `cockpit-ups-wol` should preserve least privilege.
-
-A project-specific client should therefore separate:
-
-```text
-Connect()
-Authenticate()
-Read operations
-Privileged operations
-```
-
-It should also strengthen:
-
 - response framing
-- malformed response handling
-- reconnect behavior
-- context cancellation
-- credential handling
-- tests against different NUT versions
+- timeouts
 
-## Assessment
+For v0.x, spawning the installed NUT CLI remains simpler and safer for compatibility.
 
-**Recommended action: future native NUT-client reference/adaptation; not required for v0.1.**
+If process spawning later becomes a measurable performance/problem area, NutShell is a good reference for implementing a native Go adapter.
+
+Any local implementation should strengthen response parsing, reconnect logic, cancellation and least-privilege authentication handling.
+
+**Assessment: high-value future native-client reference.**
 
 ---
 
-# 7. seriousm4x/UpSnap
+# 8. seriousm4x/UpSnap
 
 Repository: <https://github.com/seriousm4x/UpSnap>  
 Language: Go + SvelteKit  
-License: MIT  
-Status at review: very active and mature
+License: MIT
 
-UpSnap is a mature Wake-on-LAN management application.
+Useful reference areas:
 
-Useful reference areas include:
-
-- host/device model
-- Wake buttons
-- device online/offline state
-- WoL configuration UX
-- broadcast/network handling
+- host/device UX
+- wake controls
+- online/offline state
+- WoL configuration
+- broadcast handling
 - scheduling concepts
-- host organization
 - error feedback
 
-## Why not use it as a dependency
+Do not import PocketBase or the separate web application/backend into this project.
 
-Its application stack includes components unnecessary for this project, such as its own web application/backend and persistence architecture.
-
-`cockpit-ups-wol` already has:
-
-- Cockpit for UI/authentication
-- YAML/project configuration
-- a dedicated lightweight power agent
-- no requirement for PocketBase or another web server
-
-## Assessment
-
-**Recommended action: UX and feature reference; do not embed the full application.**
+**Assessment: UX/feature reference.**
 
 ---
 
-# 8. geerlingguy/pi-nut
+# 9. geerlingguy/pi-nut
 
 Repository: <https://github.com/geerlingguy/pi-nut>  
 License: GPL-3.0
 
-The project is focused on NUT deployment on a small Raspberry Pi acting as a UPS monitoring/server appliance, which is operationally close to the intended deployment of `cockpit-ups-wol` on SBCs.
+Useful for practical SBC/NUT deployment patterns:
 
-Useful reference areas:
+- USB UPS configuration
+- small-device UPS appliance setup
+- safe shutdown configuration
+- operational documentation
 
-- small-device NUT installation
-- practical NUT configuration
-- USB UPS deployment
-- safe server shutdown concepts
-- appliance documentation
+GPL code should not be copied unless the project's licensing strategy intentionally accepts the implications.
 
-## Licensing consideration
-
-GPL-3.0 code should not be copied into a differently licensed project without intentionally accepting the resulting licensing obligations.
-
-Configuration concepts and operational lessons can still be studied and independently implemented.
-
-## Assessment
-
-**Recommended action: deployment/configuration reference, not preferred for direct code reuse.**
+**Assessment: deployment/configuration reference.**
 
 ---
 
-# 9. cockpit-project/cockpit
+# 10. cockpit-project/cockpit
 
 Repository: <https://github.com/cockpit-project/cockpit>
 
-Cockpit itself is the authoritative reference for:
+Authoritative reference for:
 
 - `cockpit.spawn()`
-- DBus/systemd integration
+- systemd/DBus integration
 - privilege escalation
-- navigation/status integration
-- journald access
+- journald
+- page status
 - PatternFly conventions
-- file operations
-- package/manifest behavior
-- security model
+- Cockpit security model
 
-## Recommended use
+Prefer official Cockpit APIs whenever they already provide a required facility.
 
-Prefer official Cockpit APIs over custom wrappers whenever the platform already provides the required capability.
+Inspect individual file licenses before copying source.
 
-Examples:
-
-- systemd service status/control
-- journal viewing
-- administrative privilege prompts
-- page status indicators
-
-Because the repository contains many components and GitHub does not expose one repository-wide license in metadata, inspect the license/header of any individual file before copying code.
-
-## Assessment
-
-**Recommended action: authoritative API and implementation reference.**
+**Assessment: authoritative platform reference.**
 
 ---
 
-# 10. ahmetozer/wakeonlan
+# 11. ahmetozer/wakeonlan
 
 Repository: <https://github.com/ahmetozer/wakeonlan>  
 Language: Go
 
-This is a small Go Wake-on-LAN service and can be useful for comparing:
+Useful for comparing service/API and IPv4/IPv6 WoL implementation approaches.
 
-- API design
-- IPv4/IPv6 networking
-- service layout
-- Go WoL implementation approaches
+GitHub currently reports no detected repository license. Source therefore should not be copied unless licensing is clarified.
 
-However, GitHub currently reports no detected repository license.
-
-Without a clear license, source code SHOULD NOT be copied into `cockpit-ups-wol`.
-
-## Assessment
-
-**Recommended action: reference only unless licensing is clarified.**
+**Assessment: reference only.**
 
 ---
 
-# Recommended reuse plan
+# Recommended implementation strategy
 
-## Phase 1 — Cockpit frontend
+## Phase 1 — Cockpit/NUT frontend
 
-Start from:
+Use:
 
 ```text
 cockpit-project/starter-kit
         +
-deviationist/cockpit-upside patterns/code
+deviationist/cockpit-upside
 ```
 
-Reuse/adapt:
+Reuse/adapt mature Cockpit/NUT UI and configuration patterns.
 
-- project/build layout
-- PatternFly UI patterns
-- NUT polling wrappers
-- NUT status parser
-- UPS capability handling
-- multi-UPS model
-- setup wizard concepts
-- safe command confirmation
-- remote NUT source logic
+## Phase 2 — Persistent power/recovery agent
 
-Do not move automatic power policy into the Cockpit frontend.
-
----
-
-## Phase 2 — WoL helper
-
-Base the core packet implementation on:
+Use:
 
 ```text
-Trugamr/wol/magicpacket
+hardwarehaven/wolnut
 ```
 
-Add project-specific CLI/configuration around it:
+as the primary implementation reference for:
 
-```text
-wolctl list
-wolctl wake HOST
-wolctl status HOST
-wolctl validate
-```
+- persistent outage/client state
+- online-before-outage snapshot
+- recovery threshold
+- delayed restore
+- WoL retry/recovery monitoring
 
-Retain MIT attribution.
-
----
-
-## Phase 3 — Persistent power agent
-
-This component is largely project-specific.
-
-Do **not** try to derive it from a generic WoL or NUT GUI project.
-
-Implement independently around the architecture defined in `SOFTWARE_ARCHITECTURE.md`:
+But implement the stricter project state machine and failure policy:
 
 ```text
 NORMAL
@@ -576,35 +539,48 @@ RESTORE_HOSTS
 NORMAL
 ```
 
-It should use standard NUT commands for v0.x.
+Never interpret missing NUT data as `OL` or 100% battery.
 
-Possible later optimization:
+## Phase 3 — WoL packet helper
+
+Use/adapt:
 
 ```text
-exelban/nutshell-derived native NUT protocol client
+Trugamr/wol/magicpacket
 ```
 
-only if process-spawn polling becomes a measurable problem.
+for the low-level packet implementation.
+
+## Phase 4 — Native NUT adapter, only if justified
+
+Evaluate:
+
+```text
+exelban/nutshell
+```
+
+if repeated `upsc` process spawning becomes a measurable issue.
 
 ---
 
-# Components that should be written specifically for cockpit-ups-wol
+# Components that remain project-specific
 
-The following are sufficiently project-specific that independent implementation is recommended:
+Even with upstream reuse, these should be designed specifically for `cockpit-ups-wol`:
 
-- outage/recovery state machine
-- atomic persistent state storage
-- previous-host-state restoration policy
-- shutdown priority/dependency engine
-- recovery/WoL priority engine
-- 80% recharge threshold and fallback policies
-- stable-AC timer
+- ordered shutdown engine
+- NUT/SSH/command shutdown adapters
+- controller-last shutdown
+- explicit crash-safe outage state machine
+- stable-AC recovery timer
+- 80% default battery recovery threshold
+- recovery fallback when `battery.charge` is unavailable
 - network-readiness gate
-- controller-last shutdown behavior
-- Synology compatibility preset integration
-- installer (`install.sh`, `--tui`, `--silent`)
-- multi-distribution package abstraction
-- upgrade/rollback logic
+- ordered Wake-on-LAN restore sequence
+- Synology compatibility preset
+- Cockpit integration with the persistent agent
+- single `install.sh` with `--tui` and `--silent`
+- multi-distribution installer abstraction
+- upgrade/rollback/config migration
 
 ---
 
@@ -613,71 +589,62 @@ The following are sufficiently project-specific that independent implementation 
 Prefer this hierarchy:
 
 ```text
-1. Use standard Linux/NUT/Cockpit functionality directly
-2. Reuse small permissively licensed modules where they clearly reduce risk
-3. Adapt LGPL code when project licensing is compatible
-4. Use larger applications as design references
-5. Avoid vendoring GPL or unclear-license code unless intentionally required
+1. Standard Linux/NUT/Cockpit functionality
+2. Small permissively licensed modules
+3. Selective LGPL reuse when compatible
+4. Larger applications as design references
+5. GPL/unclear-license source only when licensing is intentionally accepted
 ```
 
-This keeps the final appliance small and reduces maintenance and supply-chain complexity.
+This keeps the appliance lightweight and maintainable.
 
 ---
 
 # License and attribution requirements
 
-Before the first source-code reuse commit, the project SHOULD add:
+Before source-code reuse begins, add:
 
 ```text
 LICENSE
 THIRD_PARTY_NOTICES.md
 ```
 
-`THIRD_PARTY_NOTICES.md` should record at minimum:
+For every copied or substantially adapted component record:
 
 - upstream project
 - upstream URL
-- copied/adapted files
+- source path
 - upstream commit/tag
 - license
 - copyright notice
-- local modifications
+- local destination
+- modifications
 
-For example, if the WoL package is adapted:
-
-```text
-Component: Wake-on-LAN magic packet implementation
-Source: https://github.com/Trugamr/wol
-Upstream path: magicpacket/
-License: MIT
-Local use: wolctl/magicpacket/
-Modification: integrated with cockpit-ups-wol host configuration and logging
-```
-
-The same process should be followed for any code imported from Cockpit starter-kit, UPSide, NutShell or other projects.
+For WOLNUT, if state/recovery code is adapted, the notice should identify the exact upstream files, likely including `wolnut/state.py` and/or relevant recovery logic from `wolnut/cli.py`, and state that the implementation was modified to use strict failure handling and the `cockpit-ups-wol` state machine.
 
 ---
 
 # Current recommendation
 
-For the first implementation, the practical source strategy is:
+The most efficient source strategy is now:
 
 ```text
 Cockpit frontend
     └── cockpit-project/starter-kit
-         + selected ideas/code from deviationist/cockpit-upside
+         + selected code/patterns from deviationist/cockpit-upside
 
 UPS communication
     └── installed NUT CLI/services
 
+Persistent recovery agent
+    └── new cockpit-ups-wol implementation
+         strongly informed by hardwarehaven/wolnut
+
 WoL packet core
     └── selected MIT code from Trugamr/wol
-
-Power automation agent
-    └── new cockpit-ups-wol implementation
 
 Native NUT client
     └── defer; evaluate exelban/nutshell later
 ```
 
-This provides the maximum useful reuse while keeping the architecture aligned with the project's main differentiator: reliable unattended shutdown and controlled automatic recovery of a small home/lab network.
+`hardwarehaven/wolnut` should therefore be treated as a **high-priority reference and selective-reuse candidate**, particularly for the persistent recovery-agent logic, while its fail-open UPS defaults and restart-state handling must not be copied unchanged.
