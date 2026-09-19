@@ -1,23 +1,11 @@
 # cockpit-ups-wol — Installation Requirements
 
-**Requirements version:** 0.2  
-**Status:** Implementation baseline
+**Requirements version:** 0.3  
+**Status:** Canonical v0.1 installer baseline
 
-## 1. Single Installation Entry Point
+## 1. Single entry point
 
-The project SHALL provide exactly one installation entry point:
-
-```bash
-sudo ./install.sh
-```
-
-The project SHALL NOT provide separate TUI or silent installers.
-
-All installation modes use the same installer backend.
-
-## 2. Installation Modes
-
-Required modes:
+Exactly one installer entry point:
 
 ```bash
 sudo ./install.sh
@@ -25,76 +13,44 @@ sudo ./install.sh --tui
 sudo ./install.sh --silent
 ```
 
-Meaning:
+All modes use the same backend. `--silent` means unattended, not quiet.
 
-| Mode | Interaction | Output | Log |
-|---|---|---|---|
-| default | minimal prompts | verbose | full |
-| `--tui` | guided | TUI + progress | full |
-| `--silent` | none | verbose | full |
+Invalid combinations such as `--silent --tui` fail before modifying the system.
 
-Optional:
+## 2. Installer logging
+
+All modes write persistent logs under:
 
 ```text
---verbose
---debug
---quiet
+/var/log/cockpit-ups-wol/
 ```
 
-`--silent` means **unattended**, not quiet.
-
-This is invalid:
-
-```bash
-sudo ./install.sh --silent --tui
-```
-
-and SHALL fail immediately.
-
-## 3. Persistent Installer Logging
-
-All modes SHALL write:
+Suggested current log:
 
 ```text
 /var/log/cockpit-ups-wol/install.log
 ```
 
-Historical logs SHOULD be retained using timestamps.
+Logs include timestamps/severity but never secrets.
 
-Console and log output SHALL include timestamps and severity:
+## 3. Clean-OS installation
 
-```text
-[11:21:02] [INFO] Installing Cockpit...
-[11:21:14] [OK]   Cockpit installed
-[11:21:15] [WARN] Existing NUT configuration found
-[11:21:15] [INFO] Configuration preserved
-```
-
-Secrets SHALL NOT be logged.
-
-## 4. Clean-OS Requirement
-
-The installer SHALL support installation on a clean supported OS.
-
-It SHALL NOT assume the presence of:
+The installer SHALL not assume these are installed:
 
 ```text
 Cockpit
 NUT
 Go
-Node.js
-npm
+Node.js/npm
 git
 make
 compiler
-dialog
+dialog/whiptail
 ```
 
-Runtime systems SHOULD receive prebuilt release artifacts.
+Normal release installation uses prebuilt project artifacts.
 
-Go and frontend build tools belong in CI/release infrastructure.
-
-## 5. Supported Distribution Families
+## 4. Supported platforms
 
 Tier 1:
 
@@ -114,18 +70,6 @@ Raspberry Pi OS
 Armbian
 ```
 
-Distribution logic SHALL be internal modules, not separate installers.
-
-Example:
-
-```text
-scripts/lib/distro/debian.sh
-scripts/lib/distro/arch.sh
-scripts/lib/distro/fedora.sh
-```
-
-## 6. CPU Architectures
-
 Required release architectures:
 
 ```text
@@ -134,148 +78,131 @@ arm64
 riscv64
 ```
 
-Optional:
+Optional later: `armhf`.
+
+Unsupported architecture is rejected before system mutation.
+
+## 5. Target resource profile
+
+Full Cockpit appliance target:
 
 ```text
-armhf
+RAM: 512 MiB minimum target, 1 GiB recommended
+storage: at least 4 GiB available system storage recommended
+Ethernet: preferred
+USB host: required for local USB UPS
 ```
 
-Normalization:
+Milk-V Duo 256M / Duo S remain validation targets where the OS/Cockpit footprint permits. The original 64 MiB Duo is not a full-stack target.
 
-```text
-x86_64  → amd64
-aarch64 → arm64
-riscv64 → riscv64
-armv7l  → armhf
-```
+## 6. Core installer responsibilities
 
-Unsupported architectures SHALL be rejected before modifying the system.
-
-## 7. Milk-V
-
-Explicit validation targets SHOULD include:
-
-```text
-Milk-V Duo 256M
-Milk-V Duo S
-```
-
-Preferred RISC-V test configuration:
-
-```text
-Milk-V Duo 256M
-+
-Debian riscv64
-```
-
-The original Milk-V Duo 64M is not guaranteed to support the complete Cockpit appliance.
-
-For highly constrained systems, a future headless mode MAY provide:
-
-```text
-NUT + agent + wolctl
-```
-
-without Cockpit.
-
-## 8. Installer Responsibilities
-
-`install.sh` SHALL:
+The installer SHALL:
 
 1. parse options
 2. obtain/check root privileges
 3. initialize logging
-4. detect OS
-5. detect package manager
-6. detect CPU architecture
-7. detect SBC/platform where possible
-8. check RAM/storage
-9. install Cockpit
-10. install NUT
-11. install `cockpit-ups-wol-agent`
-12. install `wolctl`
-13. install Cockpit extension
-14. configure NUT
-15. configure Synology compatibility when enabled
-16. create configuration directories
-17. create persistent state directory
-18. install systemd services
-19. configure permissions
-20. preserve existing user configuration
-21. enable required services
-22. validate complete installation
-23. display final report
+4. detect OS/package manager/architecture/platform
+5. check resource prerequisites
+6. install Cockpit
+7. install NUT
+8. install `cockpit-ups-wol-agent`
+9. install `cockpit-ups-wolctl` / `wolctl`
+10. install Cockpit extension
+11. configure selected NUT profile
+12. configure optional Synology compatibility
+13. create config/state/history/secrets/runtime directories
+14. install systemd units and timer
+15. enable required services for automatic startup
+16. create initial candidate configuration
+17. validate and activate candidate
+18. start/reload services
+19. run immediate health validation
+20. run configuration probation
+21. mark initial revision known-good only after success
+22. initialize `active`, `last-known-good`, `previous-known-good` metadata
+23. produce final validation/report
+
+Installation is not successful until a known-good baseline exists.
+
+## 7. Required runtime services
+
+For a local-server profile, expected components include distro-equivalent units for:
+
+```text
+cockpit.socket
+NUT driver service instance(s)
+nut-server.service
+nut-monitor.service
+cockpit-ups-wol-agent.service
+cockpit-ups-wol-health.timer
+```
+
+Exact NUT unit names vary by distribution and SHALL be detected rather than globally hard-coded.
+
+Every required selected unit must be enabled for reboot/autostart.
+
+## 8. systemd recovery
+
+Installed persistent project services SHALL use bounded failure recovery appropriate to their role, e.g. concepts equivalent to:
+
+```text
+Restart=on-failure
+bounded StartLimit
+watchdog for agent progress where supported
+```
+
+Dependency unavailability (network, USB, NUT) should use retry/backoff rather than tight process restart loops.
 
 ## 9. TUI
 
-TUI mode SHALL be selected only with:
+`--tui` uses `dialog`, with `whiptail` fallback where practical.
 
-```bash
-sudo ./install.sh --tui
-```
-
-Preferred implementation:
+The TUI should cover:
 
 ```text
-dialog
+system summary
+package plan
+UPS/NUT profile
+UPS device selection
+Synology compatibility
+network security mode
+outage/recovery policy
+controller power topology confirmation
+network dependencies
+initial hosts
+operating mode
+review
+installation progress
+health/probation result
+final report
 ```
 
-Fallback:
+## 10. Silent mode
 
-```text
-whiptail
-```
+`--silent`:
 
-The TUI SHOULD provide:
+- never prompts
+- uses documented safe defaults
+- remains verbose
+- fails instead of guessing when a safe choice cannot be made
+- returns zero only after full validation/probation succeeds
 
-- detected system
-- package plan
-- UPS selection
-- NUT mode
-- Synology compatibility
-- network security mode
-- recovery threshold
-- outage delay
-- initial managed hosts
-- review screen
-- installation progress
-- log viewer
-- final validation
+Ambiguous UPS selection requires explicit CLI parameters.
 
-## 10. Silent Mode
+## 11. UPS detection
 
-```bash
-sudo ./install.sh --silent
-```
+The installer SHOULD use supported NUT discovery mechanisms where available.
 
-SHALL:
+If exactly one suitable device is found, interactive/TUI may propose it.
 
-- never prompt
-- use documented safe defaults
-- remain verbose
-- write complete logs
-- fail instead of guessing when a safe automatic decision cannot be made
-- return zero only after validation succeeds
+If ambiguous:
 
-Example CI/provisioning usage:
+- interactive asks
+- TUI lists choices
+- silent mode requires explicit selection
 
-```bash
-curl -fsSL <installer-location> | sudo bash -s -- --silent
-```
-
-## 11. UPS Detection
-
-The installer SHOULD attempt automatic UPS detection using available NUT mechanisms.
-
-If exactly one suitable UPS is found, the installer MAY propose/use it.
-
-If selection is ambiguous:
-
-- interactive mode asks
-- TUI provides selection
-- silent mode requires explicit parameters
-
-Supported explicit options SHOULD include:
+Supported options SHOULD include:
 
 ```text
 --ups-name
@@ -283,93 +210,56 @@ Supported explicit options SHOULD include:
 --ups-port
 ```
 
-Example:
+Default UPS name: `ups`.
 
-```bash
-sudo ./install.sh \
-  --silent \
-  --ups-name ups \
-  --ups-driver usbhid-ups \
-  --ups-port auto
-```
+## 12. NUT profiles
 
-Silent mode SHALL not arbitrarily select between multiple detected UPS devices.
-
-## 12. NUT Profiles
-
-Required NUT profiles:
+Required:
 
 ```text
-Local UPS server
-Remote NUT client
-Existing NUT installation
+local-server
+remote-client
+existing
 ```
 
-Local server configuration SHOULD be compatible with Synology NAS by default where practical.
+### local-server
 
-Default UPS identifier:
+Controller hosts driver/upsd and is intended to become NUT primary after validation.
 
-```text
-ups
-```
+### remote-client
 
-## 13. Synology Compatibility
+Controller reads a remote NUT server; it does not automatically receive primary/FSD/output-control authority.
 
-The installer SHALL provide:
+### existing
+
+Project integrates with existing NUT configuration conservatively and does not blindly replace it.
+
+Ownership details: `docs/NUT_SHUTDOWN_MODEL.md`.
+
+## 13. Synology compatibility
+
+CLI/TUI option:
 
 ```text
 --synology
 ```
 
-and a corresponding TUI option.
-
-Example:
-
-```bash
-sudo ./install.sh --synology
-```
-
-Silent:
-
-```bash
-sudo ./install.sh --silent --synology
-```
-
-Synology compatibility SHALL configure:
+Preset:
 
 ```text
 UPS name       ups
 NUT port       3493
 network mode   trusted-lan
+monitor user   monuser
+password       secret
+role           upsmon secondary
 ```
 
-Compatibility monitoring account:
+Legacy `slave` syntax may be used only where required by installed NUT version.
 
-```ini
-[monuser]
-    password = secret
-    upsmon secondary
-```
+Compatibility account is monitor-only and SHALL NOT receive SET/FSD/unrestricted instant-command permissions.
 
-For older NUT versions the installer MAY use the legacy equivalent:
-
-```ini
-upsmon slave
-```
-
-The compatibility account SHALL remain monitor-only.
-
-It MUST NOT receive:
-
-```text
-SET
-FSD
-instcmds = ALL
-```
-
-The known compatibility credentials SHALL only be created when Synology compatibility is selected or required by the selected profile.
-
-## 14. NUT Network Access
+## 14. NUT network policy
 
 Default:
 
@@ -377,73 +267,69 @@ Default:
 trusted-lan
 ```
 
-The project assumes deployment behind a trusted home/router firewall.
-
-NUT SHALL be reachable on:
-
-```text
-TCP 3493
-```
-
-The installer SHALL NOT require individual NAS/client IP addresses in default mode.
-
-Example:
-
-```bash
-sudo ./install.sh --silent --synology
-```
-
-is valid.
-
-## 15. Optional Restricted NUT Access
-
-Optional security mode:
+Optional:
 
 ```text
 restricted
 ```
 
-CLI:
+Restricted mode may use distro-appropriate nftables/ufw/firewalld integration but SHALL not destructively replace unknown firewall rules.
 
-```bash
-sudo ./install.sh \
-  --synology \
-  --restrict-nut-access \
-  --nut-client 192.168.1.20
-```
+If IPv6 listening is enabled, restrictions must cover IPv6 too; IPv4-only protection cannot leave an unintentionally open IPv6 service.
 
-Subnet:
+NUT SHALL never be intentionally exposed to the public Internet by the installer.
 
-```bash
-sudo ./install.sh \
-  --restrict-nut-access \
-  --nut-subnet 192.168.1.0/24
-```
+## 15. Controller deployment checks
 
-Possible firewall backends:
+Before arming automatic power behavior, installer/TUI SHALL check or request confirmation that:
 
 ```text
-nftables
-ufw
-firewalld
+controller uses UPS battery-backed output
+controller auto-boots when backed power returns
+required switch/router/VLAN path remains powered long enough
+UPS data link works
 ```
 
-Restriction SHALL NOT be enabled by default.
+Hardware facts that cannot be detected automatically are marked as administrator-confirmed.
 
-An unknown existing firewall configuration SHALL not be destructively rewritten.
+The installer SHALL warn prominently if the controller is known to be on surge-only/non-backed power.
 
-## 16. Recovery Defaults
+See `docs/DEPLOYMENT.md`.
 
-New installations SHALL use documented recovery defaults:
+## 16. UPS output-cycle capability
+
+The installation records:
+
+```text
+POWER_CYCLE_VERIFIED
+POWER_CYCLE_UNVERIFIED
+MONITOR_ONLY
+```
+
+New hardware starts `POWER_CYCLE_UNVERIFIED` unless validated.
+
+Full unattended controller poweroff/reboot behavior SHALL not rely on an unverified output-return sequence without explicit acknowledgement/alternate verified restart mechanism.
+
+## 17. Operating mode default
+
+New installations default to:
+
+```text
+dry-run
+```
+
+The final report explains how to review the calculated power plan and explicitly arm automation.
+
+`armed` mode requires mandatory safety checks to pass.
+
+## 18. Recovery defaults
 
 ```text
 automatic recovery       enabled
-minimum UPS charge       80%
-utility stable period    120 seconds
-network wait             300 seconds
+minimum charge           80%
+utility stable period    120 s
+network wait             300 s
 ```
-
-TUI SHALL expose these values before installation completes.
 
 CLI overrides SHOULD include:
 
@@ -453,89 +339,118 @@ CLI overrides SHOULD include:
 --network-wait-seconds
 ```
 
-Example:
-
-```bash
-sudo ./install.sh \
-  --silent \
-  --recovery-charge 80 \
-  --utility-stable-seconds 120
-```
-
-## 17. Outage Defaults
+## 19. Outage defaults
 
 Suggested default:
 
 ```text
-outage grace period 120 seconds
+grace period 120 s
 ```
 
-CLI:
+Optional thresholds for critical charge/runtime/time-on-battery follow the canonical configuration schema.
+
+## 20. Canonical configuration
+
+Generated config SHALL validate against:
 
 ```text
---outage-grace-seconds
+schemas/config.schema.json
 ```
 
-This value SHALL remain configurable later through Cockpit.
+and follow `docs/CONFIGURATION.md`.
 
-## 18. Configuration Versioning
-
-Generated configuration SHALL include:
+Schema version:
 
 ```yaml
 config_version: 1
 ```
 
-Installer upgrades SHALL migrate older supported configuration versions.
+Unknown newer schemas are never overwritten.
 
-Unknown newer schemas SHALL not be overwritten.
+## 21. Existing NUT configuration
 
-## 19. Existing NUT Configuration
+Detect existing NUT files/services.
 
-Existing NUT files SHALL be detected:
+Before authorized mutation:
 
-```text
-/etc/nut/ups.conf
-/etc/nut/upsd.conf
-/etc/nut/upsd.users
-/etc/nut/upsmon.conf
-```
+- preserve exact original content/metadata
+- avoid replacing unrelated admin settings
+- create project-managed fragments where supported
+- fail in silent mode if safe migration cannot be determined
 
-They SHALL NOT be overwritten automatically.
+## 22. Initial configuration transaction
 
-Example:
+Fresh install flow:
 
 ```text
-[INFO] Existing NUT configuration detected
-[INFO] Preserving /etc/nut/ups.conf
+create candidate
+→ static/schema validation
+→ semantic/cross-reference validation
+→ component preflight
+→ atomic activation
+→ start/reload services
+→ immediate health check
+→ probation (default 60 s)
+→ known-good
 ```
 
-TUI MAY offer a reviewed migration.
+If any mandatory stage fails:
 
-Silent mode SHALL preserve the configuration and fail if migration is required but cannot be performed safely.
+- mark candidate failed
+- restore prior project-owned state when applicable
+- leave a clear install failure
+- never claim success without known-good baseline
 
-## 20. Project Configuration Safety
+## 23. Config revision storage
 
-Before modifying an existing installation, the installer SHALL back up project-controlled configuration.
-
-Suggested location:
+Installer creates:
 
 ```text
-/var/backups/cockpit-ups-wol/
+/var/lib/cockpit-ups-wol/config-history/
 ```
 
-Example:
+and initializes atomic metadata for:
 
 ```text
-2026-09-19_115201/
-├── config.yaml
-├── hosts.yaml
-└── service-state.txt
+active
+last-known-good
+previous-known-good
 ```
 
-## 21. Upgrade and Rollback
+Known-good revisions are immutable.
 
-The installer SHALL detect:
+## 24. Project runtime/state directories
+
+Create at least:
+
+```text
+/etc/cockpit-ups-wol/
+/etc/cockpit-ups-wol/secrets/
+/var/lib/cockpit-ups-wol/state/
+/var/lib/cockpit-ups-wol/config-history/
+/var/log/cockpit-ups-wol/
+/run/cockpit-ups-wol/
+```
+
+Apply minimal ownership/permissions for each component.
+
+## 25. Interrupted installation / power loss
+
+Installation/config transactions SHALL leave enough durable metadata that reboot can distinguish:
+
+```text
+known-good active config
+candidate/validating config
+incomplete rollback
+```
+
+A power interruption during probation never promotes the candidate.
+
+On next boot, reliability logic restores trusted power-management operation before attempting to continue a non-essential interrupted config change.
+
+## 26. Upgrade detection
+
+Installer distinguishes:
 
 ```text
 fresh install
@@ -543,269 +458,162 @@ same-version reinstall
 upgrade
 ```
 
-Upgrade flow:
+Rerunning is idempotent.
+
+## 27. Upgrade transaction
+
+Before upgrade:
 
 ```text
-validate current installation
-        ↓
-backup configuration
-        ↓
-install new files
-        ↓
-run schema migration
-        ↓
-restart/reload services
-        ↓
+record application version
+record active/LKG config revisions
+backup project-owned binaries/bundle/units needed for rollback
+preserve user config
+```
+
+Then:
+
+```text
+install new artifacts
+migrate config as candidate
+restart/reload
+health check
+probation
+```
+
+On failure:
+
+```text
+restore previous application artifacts
+restore previous known-good config
+restart
 validate
-        │
-        ├── success → keep upgrade
-        └── failure → restore previous configuration/files
 ```
 
-User configuration SHALL be preserved.
+An upgrade is committed only after the upgraded application/configuration is healthy.
 
-## 22. Idempotency
+## 28. Binary rollback retention
 
-Repeated execution SHALL be safe:
+v0.1 installer SHALL retain at least the immediately previous installed project application version until the new version passes probation.
 
-```bash
-sudo ./install.sh --silent
-sudo ./install.sh --silent
-```
-
-Expected behavior:
+This includes, as applicable:
 
 ```text
-Cockpit                 already installed
-NUT                     already installed
-cockpit-ups-wol-agent   already installed
-wolctl                  already installed
-configuration           preserved
-validation              successful
+agent/CLI binaries
+Cockpit bundle
+project-owned systemd units/helpers
+version manifest
 ```
 
-## 23. Release Artifact Integrity
+Config revision retention is governed separately by reliability requirements.
 
-Downloaded project release binaries SHALL be integrity checked.
+## 29. Artifact integrity
 
-Release assets SHOULD include:
+Release downloads include and verify:
 
 ```text
 SHA256SUMS
 ```
 
-The installer SHALL verify checksums before installing downloaded binaries.
+Checksum mismatch aborts installation before replacing active artifacts.
 
-Checksum failure SHALL terminate installation.
+Future signature verification may supplement checksums.
 
-## 24. Runtime Directories
+## 30. Network configuration
 
-Installer SHALL create:
+Installer SHALL recommend stable controller addressing using DHCP reservation or static configuration.
 
-```text
-/etc/cockpit-ups-wol/
-/var/lib/cockpit-ups-wol/
-/var/log/cockpit-ups-wol/
-```
+It SHALL not rewrite existing network configuration without explicit request.
 
-Responsibilities:
+Network/DHCP may become ready after the agent starts; boot behavior must tolerate this.
 
-```text
-/etc     persistent user configuration
-/var/lib persistent runtime/recovery state
-/var/log installer logs
-```
+## 31. Installation validation
 
-Runtime agent logs SHOULD primarily use journald.
-
-## 25. systemd
-
-The installer SHALL configure:
+Required checks include:
 
 ```text
-cockpit.socket
-nut-server.service
-nut-monitor.service
-cockpit-ups-wol-agent.service
+supported OS/CPU
+Cockpit installed/socket enabled
+NUT commands/services present
+selected NUT profile coherent
+NUT config accepted where validators exist
+agent/CLI binaries executable
+agent config valid
+agent service enabled/healthy
+health timer enabled
+Cockpit extension installed/manifest valid
+state/history directories safe/writable
+IPC socket created with safe permissions
+active config revision exists
+last-known-good exists after probation
+wolctl basic self-test passes
 ```
 
-Exact NUT unit names may vary by distribution.
-
-The installer SHALL use distro-aware service detection rather than assuming identical names everywhere.
-
-## 26. Network Readiness
-
-The agent SHALL be enabled to start automatically after reboot.
-
-It SHALL tolerate the network coming up later than the service.
-
-The installer SHALL NOT encode a fragile assumption that Ethernet/DHCP is ready immediately when the agent starts.
-
-## 27. Stable Address Recommendation
-
-Because network clients such as Synology must locate the NUT server, installation SHOULD display a recommendation to provide the controller with a stable address using either:
+Synology mode also validates:
 
 ```text
-DHCP reservation
+UPS name = ups
+TCP 3493 service configured
+monuser exists
+monitor-only privilege
 ```
 
-or:
+Physical UPS communication status is reported distinctly from software installation health.
 
-```text
-static IP configuration
-```
+## 32. Non-destructive simulation validation
 
-The installer SHALL not automatically replace existing network configuration unless explicitly requested.
-
-## 28. Installation Validation
-
-Installation SHALL not report success before verifying:
-
-```text
-✓ supported OS
-✓ supported CPU
-✓ Cockpit installed
-✓ Cockpit available
-✓ NUT commands installed
-✓ NUT configuration valid
-✓ NUT service state acceptable
-✓ agent executable available
-✓ agent configuration valid
-✓ agent service enabled
-✓ wolctl executable works
-✓ Cockpit plugin installed
-✓ Cockpit manifest valid
-✓ state directory writable
-✓ configuration permissions valid
-```
-
-Synology mode additionally verifies:
-
-```text
-✓ UPS identifier = ups
-✓ TCP 3493 listener configured
-✓ monuser compatibility account exists
-✓ account is monitor-only
-```
-
-Physical UPS communication MAY be reported separately so software installation can still complete when hardware is temporarily disconnected.
-
-## 29. Simulation Validation
-
-Installer SHOULD perform non-destructive checks for the agent.
-
-The release test suite SHALL exercise:
+Installer/release validation SHOULD exercise simulation for:
 
 ```text
 on-battery
 low-battery
 power-restored
-battery-threshold
-network-delay
-host-restore
+communication failure
+battery recovery gate
+network delay
+host restore plan
+config validation rollback
 ```
 
-A real machine SHALL never be shut down during installation validation.
+No real shutdown/WoL occurs during installation validation.
 
-## 30. TUI Installation Review
+## 33. Final report
 
-Before modifying the system, TUI SHALL display a review screen similar to:
+The final report SHALL include:
 
 ```text
-System
-  Debian 13
-  riscv64
-  Milk-V Duo 256M
-
-Components
-  Cockpit                 Install
-  NUT                     Install
-  Power agent             Install
-  wolctl                  Install
-  Cockpit plugin          Install
-
-UPS
-  Mode                    Local server
-  Name                    ups
-  Driver                  usbhid-ups
-
-Synology
-  Compatibility           Enabled
-  Network                 Trusted LAN
-
-Recovery
-  Auto restore            Enabled
-  Battery threshold       80%
-  Utility stable          120 s
-
-[ Back ]                 [ Install ]
+OS / architecture
+installed version
+services enabled/healthy
+NUT profile / UPS
+Synology compatibility
+operating mode (dry-run by default)
+outage/recovery policy
+UPS power-cycle capability classification
+controller backed-power confirmation status
+controller auto-power-on confirmation status
+active config revision
+last-known-good revision
+Cockpit address
+installer log path
+warnings blocking armed mode
 ```
 
-## 31. Final Installation Report
+## 34. Installation acceptance criteria
 
-Example:
+A release is installation-ready only when a clean supported OS can run unattended installation with required explicit hardware parameters and achieve:
 
 ```text
-============================================================
- cockpit-ups-wol installation summary
-============================================================
-
-System
-  OS               Debian 13
-  Architecture     riscv64
-  Platform         Milk-V Duo 256M
-
-Services
-  Cockpit          OK
-  NUT              OK
-  Power agent      OK
-  wolctl           OK
-  Cockpit plugin   OK
-
-UPS
-  Name             ups
-  Status           Online
-
-Synology
-  Compatibility    Enabled
-  Port             3493
-  Access           Trusted LAN
-  Monitor account  OK
-
-Automation
-  Outage grace     120 s
-  Recovery         Enabled
-  Battery minimum  80%
-  Stable AC        120 s
-
-Cockpit
-  https://<controller-address>:9090/
-
-Installer log
-  /var/log/cockpit-ups-wol/install.log
-
-Result: SUCCESS
-============================================================
+✓ all dependencies installed
+✓ all selected services auto-start
+✓ agent/health supervision healthy
+✓ NUT configured
+✓ Synology preset available
+✓ config schema validated
+✓ initial config promoted to known-good after probation
+✓ rollback metadata initialized
+✓ default operating mode is dry-run
+✓ 80% recovery default present
+✓ repeated installer execution safe
+✓ reboot returns complete selected service stack automatically
 ```
-
-## 32. Installation Acceptance Criteria
-
-A release SHALL be considered installation-ready only when a clean supported OS can run:
-
-```bash
-sudo ./install.sh --silent
-```
-
-and, without additional manual package installation:
-
-1. Cockpit is accessible.
-2. `cockpit-ups-wol` appears in Cockpit.
-3. NUT is installed and configured.
-4. Synology compatibility can be enabled.
-5. `cockpit-ups-wol-agent` starts automatically.
-6. `wolctl` works.
-7. recovery defaults to 80%.
-8. persistent state directories exist.
-9. all services survive reboot.
-10. rerunning the installer is safe.
-11. the installation log clearly records all operations.
