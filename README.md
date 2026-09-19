@@ -2,7 +2,7 @@
 
 `cockpit-ups-wol` is a small homelab UPS-management appliance built around Network UPS Tools (NUT), a persistent safety agent, Wake-on-LAN, and Cockpit.
 
-The project is currently **pre-alpha**. Core safety libraries and installer scaffolding exist, but the full long-running runtime loop and Cockpit frontend are still under active implementation.
+The project is currently **pre-release**. The v0.1 software baseline is implemented and continuously tested, including armed orchestration, Cockpit management, transactional installation/rollback and multi-architecture packaging. It is **not yet release-ready** because representative physical UPS/DSM acceptance and the project-license decision are still open.
 
 ## Goals
 
@@ -20,43 +20,51 @@ The project is currently **pre-alpha**. Core safety libraries and installer scaf
 
 ## Safety model
 
-The controller SBC should be powered from a **battery-backed UPS output** and should boot automatically whenever UPS output returns. Required Ethernet switching/routing must remain powered long enough for shutdown coordination.
+The controller SBC must be powered from a **battery-backed UPS output** unless it has an equivalently reliable independent backed supply, and it must boot automatically whenever UPS output returns. Required Ethernet switching/routing must remain powered long enough for shutdown coordination.
 
-A boot is never treated as proof that utility power has recovered. Recovery requires valid NUT status, a stable-utility interval, the configured battery/runtime gate, network readiness, a known-good configuration and healthy runtime state.
+A boot is never treated as proof that utility power has recovered. Recovery requires valid NUT status, a stable-utility interval, the configured battery/runtime/recharge gate, network readiness, a known-good configuration and healthy runtime state.
 
-New installations start in **dry-run** mode. Arming automation should happen only after shutdown and recovery plans have been verified.
+New installations start in **dry-run** mode. `armed` mode is implemented, but should be enabled only after the rendered shutdown/recovery plan and hardware topology have been verified.
 
 ## Current implementation
 
-Implemented foundations include:
+The v0.1 software baseline includes:
 
-- Go agent/CLI module
+- Go safety agent plus `cockpit-ups-wolctl`, health helper and `wolctl`
 - normalized NUT parsing with explicit `UNKNOWN` on communication failure
+- primary/master ownership validation before FSD
 - crash-safe state persistence with checksum and previous-generation fallback
 - deterministic power-state machine and durable shutdown/recovery commit points
-- ordered host shutdown/recovery planning
-- WoL packet sender and durable retry state
+- pre-outage online snapshot and per-host durable action state
+- ordered direct-host shutdown with fixed-argv SSH and consecutive state verification
+- NUT-managed secondary separation so hosts such as Synology are not shut down twice
+- controller/primary FSD ownership after pre-FSD hosts are settled
+- Wake-on-LAN sender with durable bounded retry state and dependency-aware ordered recovery
+- power-bounce/reboot reconciliation, including no fresh outage grace after a persisted `ON_BATTERY` reboot
+- recovery gating on valid utility, stable AC, UPS charge/runtime/recharge policy, network readiness and health
 - transactional configuration revisions with probation and last-known-good rollback
-- durable health circuit breaker and `FAILED_SAFE`
-- Unix-socket health IPC
-- systemd agent/watchdog and health timer units
-- multi-architecture compile verification for amd64, arm64 and riscv64
-- transactional installer framework with Debian/Ubuntu, Arch and Fedora-family modules
-- installer rollback snapshots, service autostart, health probation and optional Synology profile
+- durable health circuit breaker, conservative autofix and `FAILED_SAFE`
+- Unix-socket IPC and systemd READY/watchdog integration
+- Cockpit TypeScript/React/PatternFly UI with Overview, UPS, Devices, Automation, Reliability, Settings and Logs
+- sanitized dry-run power-plan/status reporting and privileged confirmed configuration rollback
+- transactional installer with service autostart, initial known-good bootstrap and application/config/Cockpit rollback
+- real Ubuntu 24.04 CI acceptance using NUT `dummy-ups`, systemd and Cockpit, including deliberately broken-upgrade rollback
+- generated NUT primary/secondary + Synology monitor-only integration tests
+- amd64 native runtime smoke plus arm64/riscv64 QEMU runtime smoke
+- reproducible amd64/arm64/riscv64 appliance archives with SHA256 checksums and prebuilt Cockpit assets
 
-Still incomplete:
+Remaining v0.1 release gates:
 
-- full long-running agent runtime wiring
-- SSH/command host shutdown adapters
-- end-to-end installer acceptance on real supported systems
-- Cockpit frontend
-- hardware UPS/Synology acceptance
-- release artifacts/checksums
-- project license selection
+- physical full outage/recovery acceptance on a representative amd64 controller + real UPS
+- physical full outage/recovery acceptance on a representative arm64 controller + real UPS
+- real Synology DSM NUT-secondary shutdown/recovery acceptance
+- project license selection and root `LICENSE`
 
-## Development installer
+The exact physical protocol is in `docs/HARDWARE_ACCEPTANCE.md`; software/QEMU simulation is not presented as a substitute for those tests.
 
-The repository now contains a single installer entry point:
+## Installation
+
+The project uses one installer entry point:
 
 ```bash
 sudo ./install.sh
@@ -64,30 +72,61 @@ sudo ./install.sh --tui
 sudo ./install.sh --silent
 ```
 
-Useful development checks:
+Useful non-destructive checks:
 
 ```bash
 ./install.sh --check
 ./install.sh --check --profile remote-client
+sudo ./scripts/test/hardware-preflight.sh --ups-target ups@localhost
 ```
 
-The installer is transactional at the project-file level: it snapshots project-managed binaries, configuration, systemd units and NUT files before changes and restores them if the installation health/probation gate fails. Existing non-empty NUT configuration is preserved rather than overwritten.
+The installer is transactional for project-managed binaries, Cockpit assets, configuration, systemd units and NUT files. It snapshots the existing state, enables required services, performs runtime health probation, creates/promotes the initial known-good configuration only after success, and restores the prior application/config/service state when an installation or upgrade fails.
 
-Because the long-running runtime loop is not yet complete, **the installer should not yet be treated as production-ready**.
+Existing non-empty NUT configuration is preserved rather than silently overwritten.
+
+## Operating modes
+
+- `monitor` — observe state without power actions
+- `dry-run` — evaluate and display the plan without destructive/wake actions; default for a new installation
+- `armed` — execute the validated persistent shutdown/recovery lifecycle
+- `maintenance` — inhibit automatic power orchestration for maintenance workflows
+
+Unsupported armed capabilities fail closed. In particular, arbitrary `command` shutdown and dependency Wake-on-LAN remain disabled until their own constrained/durable execution models are implemented.
 
 ## Synology
 
-Synology DSM compatibility is built into the design but is **disabled by default**. The installer can explicitly enable the compatibility profile with:
+Synology DSM compatibility is built into the project but is **disabled by default**. The installer can explicitly enable the compatibility profile with:
 
 ```bash
 sudo ./install.sh --synology
 ```
 
-The preferred design is for DSM to act as a NUT secondary/client and perform its own safe shutdown. The project avoids sending duplicate SSH shutdown commands to a Synology host configured for NUT shutdown.
+The preferred model is DSM as a NUT secondary/client. Where the tested DSM version requires the compatibility account, the generated profile uses UPS name `ups` and monitor-only `monuser` / `secret` credentials. The account receives `upsmon secondary` capability only; generated integration tests reject `actions`/`instcmds` privileges.
+
+A Synology host configured with `shutdown.method: nut` is left to the NUT/FSD path; the agent does not send a duplicate direct SSH shutdown.
+
+Real DSM hardware acceptance is still required before v0.1 release.
+
+## Testing and release integrity
+
+CI currently gates:
+
+- Go unit tests
+- strict canonical YAML integration
+- installer-generated NUT/FSD/Synology integration
+- `go vet`
+- amd64/arm64/riscv64 builds
+- native amd64 and QEMU arm64/riscv64 runtime smoke
+- Bash installer/preflight syntax and installer self-checks
+- real Ubuntu NUT `dummy-ups` + systemd + Cockpit installation/rollback acceptance
+- Cockpit strict TypeScript/build validation
+- reproducible multi-architecture package generation and SHA256 verification
+
+Tagged release publication is intentionally blocked until a project license exists.
 
 ## Documentation
 
-Key design documents include:
+Key design and operating documents include:
 
 - `SOFTWARE_ARCHITECTURE.md`
 - `docs/INSTALLATION_REQUIREMENTS.md`
@@ -102,6 +141,7 @@ Key design documents include:
 - `docs/OPERATING_MODES.md`
 - `docs/SECURITY.md`
 - `docs/TEST_PLAN.md`
+- `docs/HARDWARE_ACCEPTANCE.md`
 - `docs/NUT.md`
 - `docs/SYNOLOGY.md`
 - `docs/RELATED_PROJECTS.md`
@@ -112,4 +152,4 @@ Key design documents include:
 
 A project license has not yet been selected. Do not assume permission to reuse project source code until a root `LICENSE` file is added.
 
-Upstream projects reviewed for possible reuse and their licenses are tracked in `THIRD_PARTY_NOTICES.md` and `docs/RELATED_PROJECTS.md`.
+Upstream projects reviewed for possible reuse and their licenses are tracked in `THIRD_PARTY_NOTICES.md` and `docs/RELATED_PROJECTS.md`. No upstream source should be copied/adapted until the root license and the corresponding third-party obligations are resolved.
