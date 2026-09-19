@@ -1,69 +1,44 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+All notable project changes are recorded here while the project is pre-release.
 
 ## Unreleased
 
-### Architecture and requirements
+### Added
 
-- Defined NUT/Cockpit/WoL safety architecture.
-- Added Synology DSM compatibility requirements.
-- Added deterministic shutdown and recovery state model including `BOOT_RECONCILE`, commit points and `FAILED_SAFE`.
-- Added explicit NUT FSD/output-off ownership model.
-- Added outage trigger precedence, recovery hysteresis and communication-loss behavior.
-- Made UPS-backed controller/network topology a deployment requirement.
-- Added health supervision, bounded autofix, automatic service startup and configuration rollback requirements.
-- Added interrupted-boot and repeated-power-loss recovery requirements.
+- Software architecture for NUT-based outage handling, controller-last shutdown and ordered recovery.
+- Synology DSM/NUT-secondary compatibility requirements.
+- Recovery policy requiring stable utility, network readiness and UPS recharge (80% by default).
+- Reliability specification for automatic service startup, health checks, bounded autofix and `FAILED_SAFE`.
+- Interrupted-boot/brownout recovery requirements and durable shutdown/recovery commit points.
+- Transactional configuration model with candidate validation, probation, immutable known-good revisions and automatic rollback.
+- Canonical v1 YAML configuration schema and example configuration.
+- Durable power-state schema with checksummed current/previous generations and per-host action state.
+- Unix-domain-socket IPC specification for local Cockpit/CLI control.
+- Go agent/CLI foundation plus durable state, NUT/FSD, policy, WoL, health and host-adapter packages.
+- Installer framework with real Ubuntu 24.04/NUT/systemd/Cockpit install and broken-upgrade rollback acceptance.
+- Read-only-first Cockpit React/PatternFly management UI with sanitized power plan, health/revision/log views and privileged confirmed config rollback.
+- Reproducible amd64/arm64/riscv64 appliance packaging with SHA256 checksums and prebuilt Cockpit assets.
+- Full armed orchestration controller and runtime wiring: durable per-host shutdown intent, primary FSD ownership, restart reconciliation, recovery gates and ordered persistent WoL recovery.
+- Network dependency addresses and fail-closed armed preflight validation.
+- Fault tests proving power-bounce recovery stop, ambiguous shutdown reconciliation, outage-grace behavior across reboot and post-reboot AC-stability reset.
 
-### Configuration and state
+### Changed
 
-- Added canonical versioned configuration schema and example.
-- Added persistent power-state schema with sequence ordering and per-host progress.
-- Added immutable known-good configuration revision design.
-- Added power-loss-safe state/config write requirements.
-- Added Unix-socket IPC contract between Cockpit/CLI and the agent.
-- Added formal `monitor`, `dry-run`, `armed` and `maintenance` operating modes.
+- Cockpit is explicitly a management surface only; the safety-critical control path remains independent.
+- Unknown/failed NUT communication is normalized to `UNKNOWN`, never assumed online or fully charged.
+- Controller SBC and required local network infrastructure are normative UPS-backed deployment requirements.
+- A controller reboot while an outage was already in progress no longer grants a new outage grace period before threshold evaluation.
+- Installer NUT readiness now waits for a valid `ups.status: OL` observation instead of treating any successful `upsc` response as ready.
 
-### Research and compatibility
+### Security / safety
 
-- Added deep open-source related-project reuse assessment.
-- Added focused NUT and Synology integration documentation.
-- Added security model and third-party attribution process.
-- Added project readiness audit and v0.1 roadmap/backlog.
+- Destructive configuration methods that lack a tested safe adapter (`command`, armed ARP checks, dependency WoL without durable dependency state) fail closed.
+- Wake-enabled hosts in armed mode must have verifiable online status, MAC and IPv4 broadcast configuration.
+- NUT-managed hosts are not sent duplicate direct shutdown commands.
+- External shutdown and wake actions are preceded by durable state writes.
 
-### Implementation
+### Release blockers
 
-- Added Go agent/CLI foundation and multi-architecture compile verification.
-- Added crash-safe persistent state store with checksum and previous-generation fallback.
-- Added normalized NUT adapter with fail-safe `UNKNOWN` handling and primary-role FSD validation.
-- Added deterministic power state machine, durable commit coordinator, host planning and ordered recovery logic.
-- Added WoL packet generator, sender and durable retry/reconciliation logic.
-- Added transactional configuration manager with runtime probation and automatic last-known-good rollback.
-- Added durable health supervisor, bounded autofix circuit breaker, systemd watchdog support and health IPC.
-- Added transactional installer framework with distro modules, service autostart, NUT-safe setup, rollback snapshots, health probation and installer CI checks.
-
-### Documentation
-
-- Added `README.md`.
-- Added `docs/CONFIGURATION.md`.
-- Added `docs/STATE_MODEL.md`.
-- Added `docs/NUT_SHUTDOWN_MODEL.md`.
-- Added `docs/POWER_POLICY.md`.
-- Added `docs/IPC_API.md`.
-- Added `docs/IMPLEMENTATION_DECISIONS.md`.
-- Added `docs/DEPLOYMENT.md`.
-- Added `docs/OPERATING_MODES.md`.
-- Added `docs/SECURITY.md`.
-- Added `docs/TEST_PLAN.md`.
-- Added `docs/NUT.md`.
-- Added `docs/SYNOLOGY.md`.
-- Added `THIRD_PARTY_NOTICES.md`.
-
-### Pending before first release
-
-- Full long-running agent runtime loop and host action adapters.
-- Cockpit management frontend.
-- End-to-end installer acceptance on supported distributions.
-- Real UPS/Synology hardware acceptance.
-- Release artifact/checksum pipeline.
-- Project license decision.
+- Project license must be selected before tagged public release or copying/adapting upstream source.
+- Physical UPS acceptance remains required on representative amd64 and arm64 hardware; riscv64 requires runtime smoke acceptance.
