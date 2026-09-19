@@ -4,7 +4,7 @@
 
 **Phase:** safety core implementation
 
-The P0 design blockers identified by `docs/READINESS_AUDIT.md` have been reconciled. Core safety libraries are being implemented before the project is considered usable.
+The P0 design blockers identified by `docs/READINESS_AUDIT.md` have been reconciled. Core safety libraries and the transactional installer are implemented; full armed orchestration, Cockpit UI, and hardware acceptance remain before v0.1 is usable.
 
 ## v0.1 — Safety core
 
@@ -29,13 +29,16 @@ The P0 design blockers identified by `docs/READINESS_AUDIT.md` have been reconci
 - [x] canonical state machine library
 - [x] shutdown commit/recovery commit persistence coordinator
 - [x] host snapshot and reconciliation model
-- [ ] SSH/command/NUT host adapters
+- [x] constrained SSH/NUT/none host adapters
+- [ ] explicit command registry for command-based hosts
+- [x] TCP/ping status adapters with consecutive verification
 - [x] ordered pre-FSD shutdown planning
 - [x] recovery gating and ordered restore planning
 - [x] dry-run / armed / monitor / maintenance policy
 - [x] Unix-socket IPC foundation
 - [x] local CLI health client
-- [ ] full long-running agent runtime loop
+- [x] safe long-running monitor/dry-run runtime shell
+- [ ] full armed orchestration runtime
 
 ### Reliability
 
@@ -80,16 +83,16 @@ The P0 design blockers identified by `docs/READINESS_AUDIT.md` have been reconci
 - [x] amd64/arm64/riscv64 selection
 - [x] dependency installation
 - [x] service enable/autostart transaction
-- [ ] initial known-good config creation after runtime health probation
+- [x] initial known-good config creation after runtime health probation
 - [x] health/probation gate logic
 - [x] upgrade snapshot + project/NUT rollback framework
 - [x] optional Synology profile
 - [x] final validation/deployment report
-- [ ] close installer acceptance after full agent runtime stays healthy
+- [x] Ubuntu 24.04 real-NUT/systemd install + rollback acceptance
 
 ### Cockpit
 
-- [ ] starter-kit based frontend
+- [ ] starter-kit compatible frontend
 - [ ] Overview
 - [ ] UPS
 - [ ] Devices
@@ -104,7 +107,7 @@ The P0 design blockers identified by `docs/READINESS_AUDIT.md` have been reconci
 ### Tests
 
 - [x] Go unit tests for implemented core libraries
-- [ ] fake NUT integration harness
+- [x] real NUT `dummy-ups` integration harness
 - [x] state-store fault injection unit coverage
 - [ ] IPC authorization tests
 - [x] config rollback tests
@@ -113,6 +116,7 @@ The P0 design blockers identified by `docs/READINESS_AUDIT.md` have been reconci
 - [x] recovery 80% gate tests
 - [ ] FSD primary/secondary integration tests
 - [ ] Synology acceptance test procedure execution
+- [x] installer broken-upgrade rollback acceptance
 - [ ] hardware UPS acceptance on amd64
 - [ ] hardware UPS acceptance on arm64
 - [ ] riscv64 hardware smoke test
@@ -125,7 +129,7 @@ The P0 design blockers identified by `docs/READINESS_AUDIT.md` have been reconci
 - [ ] Cockpit bundle
 - [ ] SHA256SUMS
 - [ ] release installer bundle
-- [ ] upgrade/rollback end-to-end test
+- [x] upgrade/rollback end-to-end test
 - [x] README
 - [ ] LICENSE decision
 - [x] SECURITY
