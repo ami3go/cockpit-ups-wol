@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Service/file-state aware transaction hooks. Sourced after common/cockpit helpers.
-TRACKED_UNITS=(cockpit-ups-wol-agent.service cockpit-ups-wol-health.timer cockpit.socket nut-server.service nut-monitor.service nut-driver-enumerator.service)
+TRACKED_UNITS=(cockpit-ups-wol-agent.service cockpit-ups-wol-health.timer cockpit-ups-wol-firewall.service cockpit.socket nut-server.service nut-monitor.service nut-driver-enumerator.service)
 record_unit_states(){
   : >"$CURRENT_BACKUP/unit-states.tsv"
   local u enabled active
@@ -16,7 +16,7 @@ backup_begin(){
   : >"$CURRENT_BACKUP/absent.list"
   record_unit_states
   local p
-  for p in "$LIBEXEC_DIR" "$ETC_DIR" "$STATE_DIR/config-history" /usr/local/sbin/cockpit-ups-wolctl /usr/local/sbin/wolctl "$COCKPIT_UI_DIR" "$SYSTEMD_DIR/cockpit-ups-wol-agent.service" "$SYSTEMD_DIR/cockpit-ups-wol-health.service" "$SYSTEMD_DIR/cockpit-ups-wol-health.timer" /etc/nut/nut.conf /etc/nut/ups.conf /etc/nut/upsd.conf /etc/nut/upsd.users /etc/nut/upsmon.conf; do
+  for p in "$LIBEXEC_DIR" "$ETC_DIR" "$STATE_DIR/config-history" /usr/local/sbin/cockpit-ups-wolctl /usr/local/sbin/wolctl "$COCKPIT_UI_DIR" "$SYSTEMD_DIR/cockpit-ups-wol-agent.service" "$SYSTEMD_DIR/cockpit-ups-wol-health.service" "$SYSTEMD_DIR/cockpit-ups-wol-health.timer" "$SYSTEMD_DIR/cockpit-ups-wol-firewall.service" /etc/nut/nut.conf /etc/nut/ups.conf /etc/nut/upsd.conf /etc/nut/upsd.users /etc/nut/upsmon.conf; do
     backup_path_if_exists "$p"
   done
   log "rollback snapshot: $CURRENT_BACKUP"
@@ -32,8 +32,9 @@ restore_unit_states(){
 rollback_install(){
   [[ -n "$CURRENT_BACKUP" && -d "$CURRENT_BACKUP" ]] || return 0
   warn "rolling back project-managed changes"
+  systemctl stop cockpit-ups-wol-firewall.service >/dev/null 2>&1 || true
   local p
-  for p in "$LIBEXEC_DIR" "$ETC_DIR" "$STATE_DIR/config-history" /usr/local/sbin/cockpit-ups-wolctl /usr/local/sbin/wolctl "$COCKPIT_UI_DIR" "$SYSTEMD_DIR/cockpit-ups-wol-agent.service" "$SYSTEMD_DIR/cockpit-ups-wol-health.service" "$SYSTEMD_DIR/cockpit-ups-wol-health.timer" /etc/nut/nut.conf /etc/nut/ups.conf /etc/nut/upsd.conf /etc/nut/upsd.users /etc/nut/upsmon.conf; do
+  for p in "$LIBEXEC_DIR" "$ETC_DIR" "$STATE_DIR/config-history" /usr/local/sbin/cockpit-ups-wolctl /usr/local/sbin/wolctl "$COCKPIT_UI_DIR" "$SYSTEMD_DIR/cockpit-ups-wol-agent.service" "$SYSTEMD_DIR/cockpit-ups-wol-health.service" "$SYSTEMD_DIR/cockpit-ups-wol-health.timer" "$SYSTEMD_DIR/cockpit-ups-wol-firewall.service" /etc/nut/nut.conf /etc/nut/ups.conf /etc/nut/upsd.conf /etc/nut/upsd.users /etc/nut/upsmon.conf; do
     restore_one "$p"
   done
   systemctl daemon-reload >/dev/null 2>&1 || true
@@ -42,11 +43,27 @@ rollback_install(){
 systemd_reload_enable(){
   systemctl daemon-reload
   enable_if_exists cockpit.socket || warn "cockpit.socket not found"
+
+  if [[ "$PROFILE" == local-server && "${PROJECT_CONFIG_CREATED:-0}" -eq 1 ]]; then
+    if [[ "$NETWORK_MODE" == restricted ]]; then
+      systemctl enable --now cockpit-ups-wol-firewall.service
+    else
+      systemctl disable --now cockpit-ups-wol-firewall.service >/dev/null 2>&1 || true
+    fi
+  fi
+
+  case "$PROFILE" in
+    local-server)
+      enable_if_exists nut-driver-enumerator.service || true
+      enable_if_exists nut-server.service || true
+      enable_if_exists nut-monitor.service || true
+      ;;
+    remote-client)
+      enable_if_exists nut-monitor.service || true
+      ;;
+  esac
+
   systemctl enable cockpit-ups-wol-agent.service
   systemctl restart cockpit-ups-wol-agent.service
   systemctl enable --now cockpit-ups-wol-health.timer
-  case "$PROFILE" in
-    local-server) enable_if_exists nut-driver-enumerator.service || true; enable_if_exists nut-server.service || true; enable_if_exists nut-monitor.service || true ;;
-    remote-client) enable_if_exists nut-monitor.service || true ;;
-  esac
 }
