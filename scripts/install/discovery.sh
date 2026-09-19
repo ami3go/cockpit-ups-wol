@@ -30,6 +30,12 @@ parse_nut_scanner_output() {
 }
 
 nut_scan_candidates() {
+  # CI/unit tests can supply scanner-compatible text without requiring USB or
+  # shadowing the real nut-scanner executable.
+  if [[ -n "${COCKPIT_UPS_WOL_NUT_SCAN_FIXTURE:-}" ]]; then
+    cat "$COCKPIT_UPS_WOL_NUT_SCAN_FIXTURE" | parse_nut_scanner_output
+    return 0
+  fi
   command -v nut-scanner >/dev/null 2>&1 || return 0
   # -U: USB only. -N: ups.conf-compatible output. -q: suppress scanner chatter.
   # A single -U intentionally avoids volatile bus/device pinning; current NUT
@@ -109,7 +115,7 @@ resolve_local_ups_after_packages() {
       if ((SILENT)); then
         log "selected sole discovered UPS: driver=$UPS_DRIVER port=$UPS_PORT"
       elif [[ "$MODE" == tui ]] && declare -F tui_yesno >/dev/null; then
-        tui_yesno 'UPS discovery' "Use discovered UPS?\n\nDriver: $UPS_DRIVER\nPort: $UPS_PORT${desc:+\nDevice: $desc}" || prompt_driver_port
+        tui_yesno 'UPS discovery' "Use discovered UPS?\n\nDriver: $UPS_DRIVER\nPort: $UPS_PORT${desc:+\nDevice: $desc}" || { UPS_DRIVER=""; UPS_PORT=""; prompt_driver_port; }
       else
         local r
         read -r -p "Use discovered UPS driver=$UPS_DRIVER port=$UPS_PORT${desc:+ ($desc)}? [Y/n] " r
