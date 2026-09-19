@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
+	app "github.com/ami3go/cockpit-ups-wol/agent/internal/app"
 	"github.com/ami3go/cockpit-ups-wol/agent/internal/version"
 )
 
@@ -14,6 +18,8 @@ func main() {
 	fs.SetOutput(os.Stderr)
 	showVersion := fs.Bool("version", false, "print version information and exit")
 	configPath := fs.String("config", "/etc/cockpit-ups-wol/config.yaml", "configuration file")
+	socketPath := fs.String("socket", "/run/cockpit-ups-wol/agent.sock", "agent Unix socket")
+	healthStatePath := fs.String("health-state", "/var/lib/cockpit-ups-wol/health.json", "durable health state file")
 	_ = fs.Bool("foreground", false, "run in foreground (default for systemd)")
 
 	fs.Usage = func() {
@@ -31,8 +37,10 @@ func main() {
 		return
 	}
 
-	// Runtime implementation is added in subsequent v0.1 tasks. The foundation
-	// deliberately exits with a clear error instead of pretending protection is active.
-	fmt.Fprintf(os.Stderr, "cockpit-ups-wol-agent: runtime not implemented yet (config=%s)\n", *configPath)
-	os.Exit(78)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := app.LoadAndRun(ctx, *configPath, app.Options{SocketPath: *socketPath, HealthStatePath: *healthStatePath}); err != nil {
+		fmt.Fprintf(os.Stderr, "cockpit-ups-wol-agent: %v\n", err)
+		os.Exit(1)
+	}
 }
