@@ -70,7 +70,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Bash syntax
-        run: bash -n install.sh scripts/install/common.sh scripts/install/nut.sh scripts/install/validate.sh scripts/install/cockpit.sh scripts/install/transaction.sh scripts/install/distros/*.sh scripts/test/install-e2e.sh
+        run: bash -n install.sh scripts/install/common.sh scripts/install/nut.sh scripts/install/validate.sh scripts/install/cockpit.sh scripts/install/transaction.sh scripts/install/distros/*.sh scripts/test/install-e2e.sh scripts/test/hardware-preflight.sh
       - name: Installer self-check
         run: |
           ./install.sh --check --profile local-server
