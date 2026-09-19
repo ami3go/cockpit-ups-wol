@@ -50,6 +50,7 @@ health:
 network_dependencies:
   - id: core-switch
     name: Core Ethernet switch
+    address: 192.168.1.2
     priority: 1
     startup: auto-power
     status:
