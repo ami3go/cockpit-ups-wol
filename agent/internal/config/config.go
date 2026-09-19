@@ -83,6 +83,7 @@ type HealthConfig struct {
 type DependencyConfig struct {
 	ID       string       `yaml:"id" json:"id"`
 	Name     string       `yaml:"name" json:"name"`
+	Address  *string      `yaml:"address" json:"address"`
 	Status   StatusConfig `yaml:"status" json:"status"`
 	Priority int          `yaml:"priority" json:"priority"`
 	Startup  string       `yaml:"startup" json:"startup"`
@@ -185,6 +186,7 @@ func Validate(cfg Config) error {
 		if !oneOf(d.Startup, "auto-power", "wait-only", "wol") { problems = append(problems, path+".startup invalid") }
 		validateStatus(&problems, path+".status", d.Status)
 		validateWake(&problems, path+".wake", d.Wake)
+		if d.Status.Method != "none" && nilOrEmpty(d.Address) { problems = append(problems, path+".address is required when status checks are enabled") }
 		if d.Startup == "wol" && !d.Wake.Enabled { problems = append(problems, path+" startup=wol requires wake.enabled") }
 	}
 	for i, h := range cfg.Hosts {
