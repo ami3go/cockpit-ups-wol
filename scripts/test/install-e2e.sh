@@ -27,8 +27,16 @@ sudo chown root:nut /etc/nut/nut.conf /etc/nut/ups.conf /etc/nut/upsd.conf
 sudo chmod 0640 /etc/nut/nut.conf /etc/nut/ups.conf /etc/nut/upsd.conf
 sudo systemctl restart nut-driver-enumerator.service
 sudo systemctl restart nut-server.service
-for _ in {1..20}; do upsc ups@localhost >/dev/null 2>&1&&break; sleep 1; done
-if ! upsc ups@localhost|grep -q '^ups.status: OL$'; then
+NUT_READY=0
+for _ in {1..30}; do
+  if UPS_OUT="$(upsc ups@localhost 2>/dev/null)" && grep -q '^ups.status: OL$' <<<"$UPS_OUT"; then
+    NUT_READY=1
+    break
+  fi
+  sleep 1
+done
+if (( ! NUT_READY )); then
+  echo 'NUT dummy UPS did not reach a valid OL state' >&2
   sudo systemctl --no-pager --full status nut-driver-enumerator.service nut-driver.target nut-server.service || true
   sudo journalctl --no-pager -n 200 -u 'nut-driver@*' -u nut-driver-enumerator.service -u nut-server.service || true
   exit 1
