@@ -22,16 +22,24 @@ resolve_profile_inputs(){
       die "--silent requires both --ups-driver and --ups-port when either is supplied"
     fi
   fi
+  [[ "$OPERATING_MODE" =~ ^(monitor|dry-run|armed|maintenance)$ ]] || die "invalid operating mode: $OPERATING_MODE"
+  [[ "$OUTAGE_GRACE" =~ ^[0-9]+$ ]] || die "invalid outage grace"
+  [[ "$RECOVERY_CHARGE" =~ ^[1-9][0-9]?$|^100$ ]] || die "recovery charge must be 1..100"
+  [[ "$UTILITY_STABLE" =~ ^[1-9][0-9]*$ ]] || die "utility stable seconds must be > 0"
+  [[ "$NETWORK_WAIT" =~ ^[0-9]+$ ]] || die "network wait seconds must be >= 0"
+  validate_network_inputs
 }
 
 install_project_config(){
+  PROJECT_CONFIG_CREATED=0
   if [[ -f "$ETC_DIR/config.yaml" ]]; then
     log "existing project config preserved"
     return 0
   fi
 
+  PROJECT_CONFIG_CREATED=1
   install -m0600 "$SELF_DIR/config/config.yaml.example" "$ETC_DIR/config.yaml"
-  local cfg_profile="$PROFILE" driver_value port_value
+  local cfg_profile="$PROFILE" driver_value port_value allowed_yaml ipv4_yaml ipv6_yaml
   [[ "$cfg_profile" == existing-nut ]] && cfg_profile=existing
   case "$PROFILE" in
     local-server)
@@ -44,13 +52,25 @@ install_project_config(){
       port_value=null
       ;;
   esac
+  allowed_yaml="$(network_allowed_yaml)"
+  ((NUT_LISTEN_IPV4)) && ipv4_yaml=true || ipv4_yaml=false
+  ((NUT_LISTEN_IPV6)) && ipv6_yaml=true || ipv6_yaml=false
 
   sed -i \
+    -e "s|^mode: .*|mode: $OPERATING_MODE|" \
     -e "s|^  profile: .*|  profile: $cfg_profile|" \
     -e "s|^  ups_name: .*|  ups_name: $UPS_NAME|" \
     -e "s|^  host: .*|  host: $NUT_HOST|" \
     -e "s|^  driver: .*|  driver: $driver_value|" \
     -e "s|^  driver_port: .*|  driver_port: $port_value|" \
+    -e "/^  network:/,/^  synology_compatibility:/ s|^    mode: .*|    mode: $NETWORK_MODE|" \
+    -e "/^  network:/,/^  synology_compatibility:/ s|^    listen_ipv4: .*|    listen_ipv4: $ipv4_yaml|" \
+    -e "/^  network:/,/^  synology_compatibility:/ s|^    listen_ipv6: .*|    listen_ipv6: $ipv6_yaml|" \
+    -e "/^  network:/,/^  synology_compatibility:/ s|^    allowed_clients: .*|    allowed_clients: $allowed_yaml|" \
+    -e "s|^  grace_period_seconds: .*|  grace_period_seconds: $OUTAGE_GRACE|" \
+    -e "s|^  utility_stable_seconds: .*|  utility_stable_seconds: $UTILITY_STABLE|" \
+    -e "s|^  battery_charge_min: .*|  battery_charge_min: $RECOVERY_CHARGE|" \
+    -e "s|^  network_wait_seconds: .*|  network_wait_seconds: $NETWORK_WAIT|" \
     "$ETC_DIR/config.yaml"
 
   if ((SYNOLOGY)); then
@@ -59,9 +79,10 @@ install_project_config(){
 }
 
 final_report(){
-  printf '\nInstallation completed in dry-run mode.\n  profile: %s\n  UPS target: %s@%s\n' "$PROFILE" "$UPS_NAME" "$NUT_HOST"
+  printf '\nInstallation completed.\n  operating mode: %s\n  profile: %s\n  UPS target: %s@%s\n' "$OPERATING_MODE" "$PROFILE" "$UPS_NAME" "$NUT_HOST"
   if [[ "$PROFILE" == local-server ]]; then
-    printf '  UPS driver: %s\n  UPS port: %s\n' "$UPS_DRIVER" "$UPS_PORT"
+    printf '  UPS driver: %s\n  UPS port: %s\n  NUT network: %s\n' "$UPS_DRIVER" "$UPS_PORT" "$NETWORK_MODE"
   fi
+  printf '  recovery gate: charge >= %s%%, utility stable %ss, network wait %ss\n' "$RECOVERY_CHARGE" "$UTILITY_STABLE" "$NETWORK_WAIT"
   printf '  config: %s/config.yaml\n  log: %s\n  rollback: %s\n\nBefore arming verify UPS-backed SBC power, automatic boot, network power, and UPS output-cycle behavior.\n' "$ETC_DIR" "$INSTALL_LOG" "$CURRENT_BACKUP"
 }
