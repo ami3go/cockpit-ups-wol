@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -14,7 +13,7 @@ import (
 	systemd "github.com/ami3go/cockpit-ups-wol/agent/internal/system"
 )
 
-// NUTQuerier is the minimal UPS-status dependency used by the safe runtime.
+// NUTQuerier is the minimal UPS-status dependency used by the runtime.
 type NUTQuerier interface {
 	Query(context.Context, string) (nut.Status, error)
 }
@@ -25,6 +24,9 @@ type Options struct {
 	SocketPath      string
 	HealthStatePath string
 	HealthInterval  time.Duration
+	PowerInterval   time.Duration
+	StateDir        string
+	UPSMonConfPath  string
 	NUT             NUTQuerier
 	Ready           func() error
 	Stopping        func() error
@@ -37,6 +39,15 @@ func (o *Options) defaults() {
 	}
 	if o.HealthStatePath == "" {
 		o.HealthStatePath = "/var/lib/cockpit-ups-wol/health.json"
+	}
+	if o.StateDir == "" {
+		o.StateDir = "/var/lib/cockpit-ups-wol/state"
+	}
+	if o.UPSMonConfPath == "" {
+		o.UPSMonConfPath = "/etc/nut/upsmon.conf"
+	}
+	if o.PowerInterval <= 0 {
+		o.PowerInterval = 5 * time.Second
 	}
 	if o.NUT == nil {
 		o.NUT = nut.NewClient()
@@ -52,9 +63,7 @@ func (o *Options) defaults() {
 	}
 }
 
-// LoadAndRun parses the canonical YAML configuration and starts the safe
-// monitoring runtime. Destructive automation remains deliberately disabled
-// until host action adapters and the full orchestration loop are integrated.
+// LoadAndRun parses the canonical YAML configuration and starts the runtime.
 func LoadAndRun(ctx context.Context, configPath string, opts Options) error {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -67,15 +76,17 @@ func LoadAndRun(ctx context.Context, configPath string, opts Options) error {
 	return Run(ctx, cfg, opts)
 }
 
-// Run starts the non-destructive v0.1 runtime shell. It stays alive in
-// monitor/dry-run/maintenance mode, feeds systemd watchdog, exposes health over
-// IPC, and continuously reports NUT communication health. Armed mode fails
-// closed until destructive host adapters are implemented and acceptance-tested.
+// Run starts the configured runtime. monitor/dry-run/maintenance stay strictly
+// non-destructive. armed mode is routed through the durable orchestration path.
 func Run(ctx context.Context, cfg config.Config, opts Options) error {
-	if cfg.Mode == "armed" {
-		return errors.New("armed mode is not available yet: destructive host adapters are not implemented")
-	}
 	opts.defaults()
+	if cfg.Mode == "armed" {
+		return runArmed(ctx, cfg, opts)
+	}
+	return runPassive(ctx, cfg, opts)
+}
+
+func runPassive(ctx context.Context, cfg config.Config, opts Options) error {
 	interval := opts.HealthInterval
 	if interval <= 0 {
 		interval = time.Duration(cfg.Health.IntervalSeconds) * time.Second
