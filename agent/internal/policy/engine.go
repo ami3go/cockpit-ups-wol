@@ -175,7 +175,14 @@ func (e *Engine) reconcileBoot(now time.Time, in Inputs) (Decision, error) {
 	}
 
 	if in.UPS.Utility == nut.UtilityOnBattery {
-		e.onBatterySince = now
+		// If the durable pre-reboot state was already ON_BATTERY, do not restart
+		// the grace window from zero. Repeated controller resets during an outage
+		// must not postpone evaluation of battery/runtime/time shutdown triggers.
+		if e.resumeState == state.OnBattery {
+			e.onBatterySince = now.Add(-e.cfg.GracePeriod)
+		} else {
+			e.onBatterySince = now
+		}
 		e.st.PowerState = state.OnBattery
 		return Decision{Changed: true, Action: ActionNone, Reason: "booted while on battery"}, nil
 	}
