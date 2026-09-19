@@ -1,0 +1,12 @@
+[Unit]
+Description=cockpit-ups-wol health check and safe repair
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/cockpit-ups-wol/cockpit-ups-wol-health --repair
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/cockpit-ups-wol /run/cockpit-ups-wol /etc/cockpit-ups-wol

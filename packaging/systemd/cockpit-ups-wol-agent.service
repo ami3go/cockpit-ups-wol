@@ -1,0 +1,25 @@
+[Unit]
+Description=cockpit-ups-wol power management agent
+After=network.target
+Wants=network.target
+StartLimitIntervalSec=300s
+StartLimitBurst=5
+
+[Service]
+Type=notify
+ExecStart=/usr/libexec/cockpit-ups-wol/cockpit-ups-wol-agent --foreground
+Restart=on-failure
+RestartSec=5s
+WatchdogSec=30s
+NotifyAccess=main
+RuntimeDirectory=cockpit-ups-wol
+StateDirectory=cockpit-ups-wol
+ConfigurationDirectory=cockpit-ups-wol
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/cockpit-ups-wol /run/cockpit-ups-wol /etc/cockpit-ups-wol
+
+[Install]
+WantedBy=multi-user.target
