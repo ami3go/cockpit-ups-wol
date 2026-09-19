@@ -48,3 +48,26 @@ func TestFullLifecyclePersistsBeforeSideEffects(t *testing.T){
 }
 
 func TestPowerBounceStopsFurtherRecovery(t *testing.T){events:=[]string{};st:=state.New("out","cfg");st.PowerState=state.RestoreHosts;st.ShutdownCommitted=true;st.RecoveryStarted=true;v:=true;st.Hosts["pc"]=state.HostState{WasOnline:&v,RecoveryState:state.RecoveryWaiting};store:=&memoryStore{st:st,events:&events};coord:=policy.NewCoordinator(policy.New(policyConfig(testConfig()),st),store);ctl:=&Controller{Config:testConfig(),Policy:coord,Probe:&fakeProbe{online:map[string]bool{"pc":false}},Shutdown:fakeShutdown{&events},FSD:fakeFSD{&events}};ctl.Recovery=fakeRecovery{events:&events,coord:coord};_,err:=ctl.Tick(context.Background(),time.Now(),policy.Inputs{UPS:nut.Status{Utility:nut.UtilityOnBattery},NetworkReady:true,HealthSafe:true});if err!=nil{t.Fatal(err)};if index(events,"wake")>=0{t.Fatalf("wake occurred during power bounce: %#v",events)};if coord.State().PowerState!=state.OnBattery{t.Fatalf("expected ON_BATTERY, got %s",coord.State().PowerState)}}
+
+func TestRestartReconcilesRequestedHostBeforeRetry(t *testing.T){
+	events:=[]string{}
+	cfg:=testConfig()
+	st:=state.New("outage-1","cfg")
+	st.PowerState=state.ShutdownInProgress
+	st.ShutdownCommitted=true
+	wasOnline:=true
+	st.Hosts["pc"]=state.HostState{WasOnline:&wasOnline,ShutdownState:state.ShutdownRequested,RecoveryState:state.RecoveryWaiting,ShutdownAttempts:1}
+	st.Hosts["nas"]=state.HostState{WasOnline:&wasOnline,ShutdownState:state.ShutdownPlanned,RecoveryState:state.RecoveryWaiting}
+	store:=&memoryStore{st:st,events:&events}
+	coord:=policy.NewCoordinator(policy.New(policyConfig(cfg),st),store)
+	// The armed runtime restores this durable state after policy.New enters
+	// BOOT_RECONCILE. This models a daemon/controller restart after the request
+	// was written but before the process observed the remote host go offline.
+	if _,err:=coord.Write(st);err!=nil{t.Fatal(err)}
+	probe:=&fakeProbe{online:map[string]bool{"pc":false,"nas":true}}
+	ctl:=&Controller{Config:cfg,Policy:coord,Probe:probe,Shutdown:fakeShutdown{&events},FSD:fakeFSD{&events}}
+	if _,err:=ctl.Tick(context.Background(),time.Unix(200,0),policy.Inputs{UPS:nut.Status{Utility:nut.UtilityOnBattery},NetworkReady:true,HealthSafe:true});err!=nil{t.Fatal(err)}
+	if index(events,"shutdown:pc")>=0{t.Fatalf("ambiguous requested shutdown was repeated instead of reconciled: %#v",events)}
+	if coord.State().Hosts["pc"].ShutdownState!=state.ShutdownCompleted{t.Fatalf("pc state=%s",coord.State().Hosts["pc"].ShutdownState)}
+	if index(events,"fsd")<0{t.Fatalf("FSD was not requested after pre-FSD reconciliation: %#v",events)}
+}
