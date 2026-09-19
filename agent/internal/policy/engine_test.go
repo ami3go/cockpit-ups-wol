@@ -69,6 +69,26 @@ func TestCriticalChargeAfterGraceCommits(t *testing.T) {
 	}
 }
 
+func TestRebootWhileOnBatteryDoesNotReapplyGrace(t *testing.T) {
+	now := time.Unix(1000, 0)
+	crit := 30.0
+	st := baseState()
+	st.PowerState = state.OnBattery
+	e := New(Config{GracePeriod: 2 * time.Minute, CriticalCharge: &crit}, st)
+
+	// First post-reboot observation only reconciles the durable ON_BATTERY state.
+	d, err := e.Step(now, Inputs{UPS: nut.Status{Utility: nut.UtilityOnBattery, ChargePercent: f64(30)}})
+	if err != nil || d.Action != ActionNone || e.State().PowerState != state.OnBattery {
+		t.Fatalf("reconcile decision=%+v state=%s err=%v", d, e.State().PowerState, err)
+	}
+	// The next observation must evaluate thresholds immediately rather than wait
+	// another two minutes because the process/controller restarted.
+	d, err = e.Step(now.Add(time.Second), Inputs{UPS: nut.Status{Utility: nut.UtilityOnBattery, ChargePercent: f64(30)}})
+	if err != nil || d.Action != ActionCommitShutdown {
+		t.Fatalf("reboot reapplied outage grace: decision=%+v err=%v", d, err)
+	}
+}
+
 func TestRecoveryRequiresStableChargeNetworkHealth(t *testing.T) {
 	now := time.Now()
 	min := 80.0
@@ -91,6 +111,31 @@ func TestRecoveryRequiresStableChargeNetworkHealth(t *testing.T) {
 	d, _ = e.Step(now.Add(123*time.Second), Inputs{UPS: nut.Status{Utility: nut.UtilityOnline, ChargePercent: f64(80)}, NetworkReady: true, HealthSafe: true})
 	if d.Action != ActionCommitRecovery || !e.State().RecoveryStarted {
 		t.Fatalf("decision=%+v state=%+v", d, e.State())
+	}
+}
+
+func TestRecoveryStabilityTimerResetsAfterReboot(t *testing.T) {
+	now := time.Unix(2000, 0)
+	min := 80.0
+	cfg := Config{UtilityStable: 120 * time.Second, RecoveryChargeMin: &min}
+	st := baseState()
+	st.PowerState = state.WaitingForAC
+	st.ShutdownCommitted = true
+	e := New(cfg, st)
+	_, _ = e.Step(now, Inputs{UPS: nut.Status{Utility: nut.UtilityOnline, ChargePercent: f64(85)}})
+	_, _ = e.Step(now.Add(60*time.Second), Inputs{UPS: nut.Status{Utility: nut.UtilityOnline, ChargePercent: f64(85)}, NetworkReady: true, HealthSafe: true})
+	persisted := e.State()
+
+	// Simulate power interruption/reboot half-way through the AC-stability gate.
+	e = New(cfg, persisted)
+	_, _ = e.Step(now.Add(61*time.Second), Inputs{UPS: nut.Status{Utility: nut.UtilityOnline, ChargePercent: f64(85)}})
+	d, _ := e.Step(now.Add(130*time.Second), Inputs{UPS: nut.Status{Utility: nut.UtilityOnline, ChargePercent: f64(85)}, NetworkReady: true, HealthSafe: true})
+	if d.Action != ActionNone {
+		t.Fatalf("reboot must reset AC stability proof: %+v", d)
+	}
+	d, _ = e.Step(now.Add(182*time.Second), Inputs{UPS: nut.Status{Utility: nut.UtilityOnline, ChargePercent: f64(85)}, NetworkReady: true, HealthSafe: true})
+	if d.Action != ActionCommitRecovery {
+		t.Fatalf("recovery did not resume after full post-reboot stability period: %+v", d)
 	}
 }
 
