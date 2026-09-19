@@ -47,6 +47,7 @@ platform_detect
 source "$SELF_DIR/scripts/install/distros/${DISTRO_FAMILY}.sh"
 source "$SELF_DIR/scripts/install/nut.sh"
 source "$SELF_DIR/scripts/install/discovery.sh"
+source "$SELF_DIR/scripts/install/configuration.sh"
 source "$SELF_DIR/scripts/install/validate.sh"
 source "$SELF_DIR/scripts/install/cockpit.sh"
 source "$SELF_DIR/scripts/install/transaction.sh"
