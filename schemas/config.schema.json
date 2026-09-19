@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ami3go/cockpit-ups-wol/schemas/config.schema.json",
+  "title": "cockpit-ups-wol configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["config_version", "mode", "nut", "outage", "recovery", "health", "hosts"],
+  "properties": {
+    "config_version": {"const": 1},
+    "mode": {"enum": ["monitor", "dry-run", "armed", "maintenance"], "default": "dry-run"},
+    "nut": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "ups_name", "host", "port", "network"],
+      "properties": {
+        "profile": {"enum": ["local-server", "remote-client", "existing"]},
+        "ups_name": {"type": "string", "minLength": 1, "default": "ups"},
+        "host": {"type": "string", "minLength": 1, "default": "localhost"},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535, "default": 3493},
+        "driver": {"type": ["string", "null"]},
+        "driver_port": {"type": ["string", "null"]},
+        "power_cycle_capability": {"enum": ["POWER_CYCLE_VERIFIED", "POWER_CYCLE_UNVERIFIED", "MONITOR_ONLY"], "default": "POWER_CYCLE_UNVERIFIED"},
+        "network": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": {
+            "mode": {"enum": ["trusted-lan", "restricted"], "default": "trusted-lan"},
+            "listen_ipv4": {"type": "boolean", "default": true},
+            "listen_ipv6": {"type": "boolean", "default": false},
+            "allowed_clients": {"type": "array", "items": {"type": "string"}, "default": []}
+          }
+        },
+        "synology_compatibility": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": {
+            "enabled": {"type": "boolean", "default": false},
+            "username": {"type": "string", "default": "monuser"},
+            "password": {"type": "string", "default": "secret"}
+          }
+        },
+        "hosts_sync_seconds": {"type": "integer", "minimum": 1, "maximum": 600, "default": 60},
+        "final_delay_seconds": {"type": "integer", "minimum": 1, "maximum": 300, "default": 15}
+      }
+    },
+    "outage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["grace_period_seconds"],
+      "properties": {
+        "grace_period_seconds": {"type": "integer", "minimum": 0, "maximum": 86400, "default": 120},
+        "max_on_battery_seconds": {"type": ["integer", "null"], "minimum": 1},
+        "critical_battery_percent": {"type": ["integer", "null"], "minimum": 1, "maximum": 100},
+        "critical_runtime_seconds": {"type": ["integer", "null"], "minimum": 1},
+        "communication_loss_grace_seconds": {"type": "integer", "minimum": 0, "maximum": 3600, "default": 30}
+      }
+    },
+    "controller": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "require_ups_backed_power": {"type": "boolean", "const": true, "default": true},
+        "require_auto_power_on": {"type": "boolean", "const": true, "default": true}
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "utility_stable_seconds", "battery_charge_min", "network_wait_seconds"],
+      "properties": {
+        "enabled": {"type": "boolean", "default": true},
+        "utility_stable_seconds": {"type": "integer", "minimum": 1, "maximum": 86400, "default": 120},
+        "battery_charge_min": {"type": ["integer", "null"], "minimum": 1, "maximum": 100, "default": 80},
+        "runtime_min_seconds": {"type": ["integer", "null"], "minimum": 1},
+        "recharge_time_seconds": {"type": ["integer", "null"], "minimum": 1},
+        "network_wait_seconds": {"type": "integer", "minimum": 0, "maximum": 86400, "default": 300}
+      }
+    },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "interval_seconds", "probation_seconds", "autofix"],
+      "properties": {
+        "enabled": {"type": "boolean", "default": true},
+        "interval_seconds": {"type": "integer", "minimum": 10, "maximum": 3600, "default": 60},
+        "probation_seconds": {"type": "integer", "minimum": 10, "maximum": 3600, "default": 60},
+        "autofix": {"type": "boolean", "default": true},
+        "max_repair_attempts": {"type": "integer", "minimum": 1, "maximum": 20, "default": 5}
+      }
+    },
+    "network_dependencies": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"},
+          "name": {"type": "string"},
+          "status": {"$ref": "#/$defs/status"},
+          "priority": {"type": "integer", "minimum": 0, "maximum": 1000, "default": 10},
+          "startup": {"enum": ["auto-power", "wait-only", "wol"], "default": "wait-only"},
+          "wake": {"$ref": "#/$defs/wake"}
+        }
+      }
+    },
+    "hosts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "status", "shutdown", "wake", "restore_policy"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"},
+          "name": {"type": "string", "minLength": 1},
+          "address": {"type": ["string", "null"]},
+          "depends_on": {"type": "array", "items": {"type": "string"}, "default": []},
+          "status": {"$ref": "#/$defs/status"},
+          "shutdown": {"$ref": "#/$defs/shutdown"},
+          "wake": {"$ref": "#/$defs/wake"},
+          "restore_policy": {"enum": ["previous-state", "always", "never"], "default": "previous-state"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method"],
+      "properties": {
+        "method": {"enum": ["auto", "ping", "tcp", "arp", "none"]},
+        "port": {"type": ["integer", "null"], "minimum": 1, "maximum": 65535},
+        "timeout_ms": {"type": "integer", "minimum": 100, "maximum": 60000, "default": 1000},
+        "success_consecutive": {"type": "integer", "minimum": 1, "maximum": 20, "default": 3},
+        "probe_interval_seconds": {"type": "integer", "minimum": 1, "maximum": 300, "default": 5}
+      }
+    },
+    "shutdown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "priority"],
+      "properties": {
+        "method": {"enum": ["nut", "ssh", "command", "none"]},
+        "priority": {"type": "integer", "minimum": 0, "maximum": 1000},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 3600, "default": 120},
+        "ssh_user": {"type": ["string", "null"]},
+        "ssh_key_file": {"type": ["string", "null"]},
+        "command_id": {"type": ["string", "null"]}
+      }
+    },
+    "wake": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "mac": {"type": ["string", "null"], "pattern": "^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$"},
+        "interface": {"type": ["string", "null"]},
+        "broadcast": {"type": ["string", "null"]},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535, "default": 9},
+        "priority": {"type": "integer", "minimum": 0, "maximum": 1000, "default": 20},
+        "delay_after_previous_seconds": {"type": "integer", "minimum": 0, "maximum": 3600, "default": 30},
+        "max_attempts": {"type": "integer", "minimum": 1, "maximum": 20, "default": 5}
+      }
+    }
+  }
+}
