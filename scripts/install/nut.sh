@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 
 nut_write_clean_local_server(){
-  local pw="$1" syn="$2" nut_dir="${COCKPIT_UPS_WOL_NUT_ETC_DIR:-/etc/nut}"
+  local pw="$1" syn="$2" driver="${3:-${UPS_DRIVER:-usbhid-ups}}" port="${4:-${UPS_PORT:-auto}}" nut_dir="${COCKPIT_UPS_WOL_NUT_ETC_DIR:-/etc/nut}"
+  [[ "$driver" =~ ^[A-Za-z0-9._-]+$ ]] || die "invalid NUT driver"
+  [[ "$port" =~ ^[A-Za-z0-9_./:@+-]+$ && "$port" != -* ]] || die "invalid NUT driver port"
   install -d -m0750 "$nut_dir"
   printf 'MODE=netserver\n' >"$nut_dir/nut.conf"
   cat >"$nut_dir/ups.conf" <<EOF
 [$UPS_NAME]
-  driver = usbhid-ups
-  port = auto
+  driver = $driver
+  port = $port
 EOF
   cat >"$nut_dir/upsd.conf" <<'EOF'
 LISTEN 0.0.0.0 3493
@@ -48,6 +50,7 @@ nut_configure(){
       return
       ;;
   esac
+  [[ -n "${UPS_DRIVER:-}" && -n "${UPS_PORT:-}" ]] || die "local-server NUT configuration requires resolved UPS driver and port"
   if [[ -s "$nut_dir/ups.conf" || -s "$nut_dir/upsd.users" || -s "$nut_dir/upsmon.conf" ]]; then
     log "existing NUT config preserved unchanged"
     warn "verify primary upsmon role before arming"
@@ -57,7 +60,7 @@ nut_configure(){
   pw="$(openssl rand -hex 24)"
   printf '%s\n' "$pw" >"$ETC_DIR/secrets/nut-primary-password"
   chmod 0600 "$ETC_DIR/secrets/nut-primary-password"
-  nut_write_clean_local_server "$pw" "$syn"
-  log "created minimal local NUT server config for UPS '$UPS_NAME'"
-  ((syn)) && warn "Synology monuser/secret enabled; keep NUT on a trusted LAN" || true
+  nut_write_clean_local_server "$pw" "$syn" "$UPS_DRIVER" "$UPS_PORT"
+  log "created minimal local NUT server config for UPS '$UPS_NAME' driver '$UPS_DRIVER' port '$UPS_PORT'"
+  ((syn)) && warn "Synology monuser/secret enabled; keep NUT on a trusted LAN unless restricted mode is configured" || true
 }
