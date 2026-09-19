@@ -24,6 +24,21 @@ source "$SELF_DIR/scripts/install/nut.sh"
 source "$SELF_DIR/scripts/install/validate.sh"
 source "$SELF_DIR/scripts/install/transaction.sh"
 if ((CHECK_ONLY)); then installer_self_check; exit 0; fi
-require_root; log_init; trap 'install_failure "$LINENO" "$?"' ERR
-resolve_profile_inputs; confirm_install; backup_begin; install_packages; install_project_dirs; install_project_binaries; install_project_config
-install_systemd_units; nut_configure "$PROFILE" "$SYNOLOGY"; systemd_reload_enable; installation_health_gate; mark_initial_known_good; backup_commit; final_report
+require_root
+log_init
+trap 'install_failure "$LINENO" "$?"' ERR
+run_stage(){ local name="$1"; shift; log "stage: $name"; "$@"; log "stage complete: $name"; }
+run_stage "resolve profile" resolve_profile_inputs
+run_stage "confirmation" confirm_install
+run_stage "rollback snapshot" backup_begin
+run_stage "packages" install_packages
+run_stage "project directories" install_project_dirs
+run_stage "project binaries" install_project_binaries
+run_stage "project configuration" install_project_config
+run_stage "systemd units" install_systemd_units
+run_stage "NUT configuration" nut_configure "$PROFILE" "$SYNOLOGY"
+run_stage "service autostart" systemd_reload_enable
+run_stage "health probation" installation_health_gate
+run_stage "initial known-good configuration" mark_initial_known_good
+run_stage "commit installation" backup_commit
+final_report
