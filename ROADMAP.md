@@ -1,176 +1,55 @@
-# cockpit-ups-wol Roadmap
+# cockpit-ups-wol roadmap
 
-## Current phase
+This roadmap tracks implementation readiness after the architecture and reliability review. It is intentionally conservative: an item is complete only when code or an executable acceptance gate exists.
 
-**Phase:** safety core implementation
+## v0.1 — safe appliance baseline
 
-The P0 design blockers identified by `docs/READINESS_AUDIT.md` have been reconciled. Core safety libraries and the transactional installer are implemented; full armed orchestration, Cockpit UI, and hardware acceptance remain before v0.1 is usable.
+### Complete
 
-## v0.1 — Safety core
+- Go module and executable foundations for `cockpit-ups-wol-agent`, `cockpit-ups-wolctl`, `cockpit-ups-wol-health`, and `wolctl`.
+- Strict versioned YAML configuration parsing and validation.
+- Transactional configuration revisions with candidate, validating, known-good, failed and rolled-back states.
+- Durable power state generations with checksum validation, `current`/`previous` fallback, fsync and atomic rotation.
+- NUT `upsc` status adapter with explicit `UNKNOWN` failure semantics.
+- Primary/master ownership validation before `upsmon -c fsd`.
+- Deterministic outage/recovery policy state machine and durable commit points.
+- Dependency-aware host shutdown/recovery planning.
+- Wake-on-LAN packet generation, broadcast/interface selection, durable retry state and bounded retries.
+- Health supervisor with durable repair circuit breaker, conservative autofix and `FAILED_SAFE`.
+- Local Unix-socket IPC for health status.
+- Safe long-running monitor/dry-run/maintenance agent shell with systemd READY/watchdog support.
+- Constrained host action/status adapters: fixed-argv SSH shutdown, NUT-managed-host separation, TCP/ping probing and consecutive confirmation.
+- Installer framework with distro detection, dependency installation, service autostart, health probation, initial last-known-good bootstrap, application/config/UI rollback and a real Ubuntu/NUT/systemd/Cockpit acceptance test.
+- Cockpit TypeScript/React/PatternFly dashboard with Overview, UPS, Devices, Automation, Reliability, Settings and Logs; sanitized plan/status reporting and privileged confirmed configuration rollback.
+- Reproducible multi-arch packaging for linux/amd64, linux/arm64 and linux/riscv64 with SHA256SUMS and prebuilt Cockpit assets.
+- Full `armed` outage/recovery orchestration: persisted pre-outage snapshot, deterministic pre-FSD shutdown, durable per-host requests before side effects, primary FSD ownership, restart reconciliation, recovery gating, ordered durable WoL restoration and immediate recovery stop on unsafe power.
 
-### Foundation
+### In progress / release gates
 
-- [x] repository/build skeleton
-- [x] implementation stack decision
-- [x] canonical architecture reconciliation
-- [x] canonical configuration schema
-- [x] canonical persistent state schema
-- [x] local IPC contract
-- [x] NUT shutdown/FSD ownership model
-- [x] power-policy precedence/hysteresis
-- [x] controller/network UPS-backed deployment model
+- Expand simulation and fault-injection coverage for repeated boot interruption, power bounce, NUT role handling, config failure recovery and architecture smoke tests.
+- Physical UPS acceptance on supported amd64 and arm64 hardware.
+- RISC-V runtime smoke acceptance (cross-build already passes).
+- Final Synology DSM acceptance with a real NAS/NUT-secondary configuration.
+- Select and add the project license before tagged public release/source reuse.
 
-### Agent
+## v0.2 — administration and integrations
 
-- [x] Go module and command skeleton
-- [x] configuration loader + schema/semantic validation
-- [x] atomic state store with checksum + previous-generation fallback
-- [x] normalized NUT adapter (`OL`/`OB`/`LB`/`FSD`/`UNKNOWN`)
-- [x] canonical state machine library
-- [x] shutdown commit/recovery commit persistence coordinator
-- [x] host snapshot and reconciliation model
-- [x] constrained SSH/NUT/none host adapters
-- [ ] explicit command registry for command-based hosts
-- [x] TCP/ping status adapters with consecutive verification
-- [x] ordered pre-FSD shutdown planning
-- [x] recovery gating and ordered restore planning
-- [x] dry-run / armed / monitor / maintenance policy
-- [x] Unix-socket IPC foundation
-- [x] local CLI health client
-- [x] safe long-running monitor/dry-run runtime shell
-- [ ] full armed orchestration runtime
+- Additional safe command registry for explicitly allowlisted non-SSH shutdown actions.
+- Advanced UPS commands and writable-variable management with privilege separation.
+- Multi-UPS policy support.
+- Proxmox API adapter and VM/container-aware shutdown planning.
+- Additional dependency startup methods after durable dependency-action state is implemented.
+- Optional native Go NUT client after protocol/TLS requirements are finalized.
+- Maintenance/manual intervention workflows and richer Cockpit configuration editors.
+- Optional UPS load/output management after hardware capability classification.
 
-### Reliability
+## v0.3 — observability and ecosystem
 
-- [x] systemd unit for agent
-- [x] systemd watchdog support
-- [x] health oneshot + timer
-- [x] bounded repair/circuit breaker
-- [x] config revision manager
-- [x] runtime probation model
-- [x] automatic last-known-good rollback
-- [x] interrupted-config recovery
-- [x] `FAILED_SAFE` state and health exposure
-- [ ] full runtime wiring of all health/autofix checks
+- Event history and power-cycle timeline.
+- Prometheus/metrics export.
+- Notifications and external integrations.
+- Fleet/remote status aggregation where appropriate for protected homelabs.
 
-### NUT / Synology
+## Release principle
 
-- [ ] distro-aware NUT service discovery beyond installer unit probing
-- [x] local-server profile design
-- [x] remote-client profile design
-- [x] existing-NUT profile design
-- [x] Synology compatibility preset/specification
-- [x] primary/secondary validation
-- [x] UPS output power-cycle capability classification model
-- [x] safe FSD integration through primary `upsmon`
-
-### WoL
-
-- [x] Go magic-packet package
-- [x] `wolctl`
-- [x] interface/broadcast selection
-- [x] bounded retry persistence
-- [x] status/reconciliation hooks
-- [x] dependency-aware ordered recovery
-
-### Installer
-
-- [x] single `install.sh` framework
-- [x] default / `--tui` / `--silent`
-- [x] Debian/Ubuntu module
-- [x] Arch module
-- [x] Fedora-family module
-- [x] amd64/arm64/riscv64 selection
-- [x] dependency installation
-- [x] service enable/autostart transaction
-- [x] initial known-good config creation after runtime health probation
-- [x] health/probation gate logic
-- [x] upgrade snapshot + project/NUT rollback framework
-- [x] optional Synology profile
-- [x] final validation/deployment report
-- [x] Ubuntu 24.04 real-NUT/systemd install + rollback acceptance
-
-### Cockpit
-
-- [ ] starter-kit compatible frontend
-- [ ] Overview
-- [ ] UPS
-- [ ] Devices
-- [ ] Automation
-- [ ] Reliability
-- [ ] Settings
-- [ ] Logs
-- [ ] dry-run power plan preview
-- [ ] config revision/rollback UI
-- [ ] privileged actions through local CLI/superuser path
-
-### Tests
-
-- [x] Go unit tests for implemented core libraries
-- [x] real NUT `dummy-ups` integration harness
-- [x] state-store fault injection unit coverage
-- [ ] IPC authorization tests
-- [x] config rollback tests
-- [ ] repeated interrupted-boot integration tests
-- [x] power-bounce state-machine tests
-- [x] recovery 80% gate tests
-- [ ] FSD primary/secondary integration tests
-- [ ] Synology acceptance test procedure execution
-- [x] installer broken-upgrade rollback acceptance
-- [ ] hardware UPS acceptance on amd64
-- [ ] hardware UPS acceptance on arm64
-- [ ] riscv64 hardware smoke test
-
-### Release
-
-- [x] CI build/test workflow
-- [x] multi-arch compile verification
-- [ ] release multi-arch binary artifacts
-- [ ] Cockpit bundle
-- [ ] SHA256SUMS
-- [ ] release installer bundle
-- [x] upgrade/rollback end-to-end test
-- [x] README
-- [ ] LICENSE decision
-- [x] SECURITY
-- [x] THIRD_PARTY_NOTICES
-- [x] CHANGELOG
-
-## v0.2 — Administration and adapters
-
-- Proxmox API adapter
-- richer NUT administrative commands with explicit authorization
-- multiple UPSes
-- host CRUD improvements
-- maintenance workflows
-- notification integrations
-- optional load-aware policy
-
-## v0.3 — Observability and advanced deployment
-
-- historical graphs/metrics
-- Prometheus integration
-- notifications/reporting
-- native Go NUT client evaluation
-- advanced routed/VLAN WoL helpers
-- multi-controller/HA research
-
-## Definition of v0.1 usable
-
-v0.1 is usable only when a clean supported system can install the stack and successfully complete this hardware/simulation lifecycle:
-
-```text
-install → dry-run → arm
-utility loss
-ordered shutdown
-NUT secondary shutdown
-controller last
-interrupted boot/power bounce
-valid OL stability
-UPS >= 80%
-ordered restore
-config failure rollback
-health/autofix validation
-```
-
-No browser may be required for the automatic safety lifecycle.
+A feature is not considered complete merely because the source compiles. Safety-relevant work must have an executable acceptance path covering persistence, restart behavior and fail-closed handling before it is enabled by default.
