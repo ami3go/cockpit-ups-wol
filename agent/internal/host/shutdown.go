@@ -98,6 +98,15 @@ func ValidateArmedCapabilities(cfg config.Config) error {
 		if dep.Status.Method == "arp" {
 			return fmt.Errorf("network dependency %q uses unsupported armed status method arp", dep.ID)
 		}
+		if dep.Status.Method == "none" || dep.Address == nil || strings.TrimSpace(*dep.Address) == "" {
+			return fmt.Errorf("network dependency %q cannot be verified in armed mode", dep.ID)
+		}
+		if err := validateEndpoint(*dep.Address); err != nil {
+			return fmt.Errorf("network dependency %q: %w", dep.ID, err)
+		}
+		if dep.Startup == "wol" {
+			return fmt.Errorf("network dependency %q uses startup=wol, which is disabled until dependency wake state is durable", dep.ID)
+		}
 	}
 	for _, h := range cfg.Hosts {
 		if h.Status.Method == "arp" {
@@ -119,6 +128,17 @@ func ValidateArmedCapabilities(cfg config.Config) error {
 			return fmt.Errorf("host %q uses command shutdown, which is not available until the command registry is implemented", h.ID)
 		default:
 			return fmt.Errorf("host %q uses unsupported shutdown method %q", h.ID, h.Shutdown.Method)
+		}
+		if cfg.Recovery.Enabled && h.Wake.Enabled {
+			if h.Address == nil || h.Status.Method == "none" {
+				return fmt.Errorf("host %q wake is enabled but online state cannot be verified", h.ID)
+			}
+			if h.Wake.MAC == nil || strings.TrimSpace(*h.Wake.MAC) == "" {
+				return fmt.Errorf("host %q wake is enabled without a MAC address", h.ID)
+			}
+			if h.Wake.Broadcast == nil || strings.TrimSpace(*h.Wake.Broadcast) == "" {
+				return fmt.Errorf("host %q wake is enabled without an IPv4 broadcast address", h.ID)
+			}
 		}
 	}
 	return nil
