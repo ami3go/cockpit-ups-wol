@@ -2,9 +2,9 @@
 
 ## Current phase
 
-**Phase:** safety-core implementation
+**Phase:** safety core implementation
 
-The P0 architecture/readiness blockers are resolved. Core safety libraries are now being implemented and continuously validated by CI.
+The P0 design blockers identified by `docs/READINESS_AUDIT.md` have been reconciled. Core safety libraries are being implemented before the project is considered usable.
 
 ## v0.1 — Safety core
 
@@ -23,68 +23,69 @@ The P0 architecture/readiness blockers are resolved. Core safety libraries are n
 ### Agent
 
 - [x] Go module and command skeleton
-- [x] configuration loader + strict YAML/semantic validation
+- [x] configuration loader + schema/semantic validation
 - [x] atomic state store with checksum + previous-generation fallback
 - [x] normalized NUT adapter (`OL`/`OB`/`LB`/`FSD`/`UNKNOWN`)
 - [x] canonical state machine library
 - [x] shutdown commit/recovery commit persistence coordinator
-- [ ] host snapshot and full interrupted-action reconciliation
-- [ ] SSH/command/NUT host shutdown adapters
+- [x] host snapshot and reconciliation model
+- [ ] SSH/command/NUT host adapters
 - [x] ordered pre-FSD shutdown planning
-- [x] recovery gating and dependency-aware ordered restore
-- [ ] runtime enforcement of dry-run / armed / monitor / maintenance modes
-- [x] Unix-socket IPC server foundation
-- [x] local CLI client foundation
-- [ ] integrated long-running agent event loop
+- [x] recovery gating and ordered restore planning
+- [x] dry-run / armed / monitor / maintenance policy
+- [x] Unix-socket IPC foundation
+- [x] local CLI health client
+- [ ] full long-running agent runtime loop
 
 ### Reliability
 
 - [x] systemd unit for agent
 - [x] systemd watchdog support
 - [x] health oneshot + timer
-- [x] bounded repair/circuit breaker with durable counters
+- [x] bounded repair/circuit breaker
 - [x] config revision manager
-- [x] runtime probation
+- [x] runtime probation model
 - [x] automatic last-known-good rollback
 - [x] interrupted-config recovery
-- [x] health details over local IPC
-- [ ] `FAILED_SAFE` acknowledgement/reconciliation command path
+- [x] `FAILED_SAFE` state and health exposure
+- [ ] full runtime wiring of all health/autofix checks
 
 ### NUT / Synology
 
-- [ ] distro-aware NUT service discovery
-- [ ] fully integrated local-server runtime profile
-- [ ] fully integrated remote-client runtime profile
-- [ ] existing-NUT profile installer integration
-- [ ] Synology compatibility installer preset
-- [x] primary/master validation from `upsmon.conf`
-- [x] UPS output power-cycle capability represented in config
-- [x] safe FSD request through primary `upsmon`
+- [ ] distro-aware NUT service discovery beyond installer unit probing
+- [x] local-server profile design
+- [x] remote-client profile design
+- [x] existing-NUT profile design
+- [x] Synology compatibility preset/specification
+- [x] primary/secondary validation
+- [x] UPS output power-cycle capability classification model
+- [x] safe FSD integration through primary `upsmon`
 
 ### WoL
 
 - [x] Go magic-packet package
 - [x] `wolctl`
 - [x] interface/broadcast selection
-- [x] bounded retry state
-- [ ] concrete host status verification adapters (TCP/ping/ARP)
+- [x] bounded retry persistence
+- [x] status/reconciliation hooks
 - [x] dependency-aware ordered recovery
 
 ### Installer
 
-- [ ] single `install.sh`
-- [ ] default / `--tui` / `--silent`
-- [ ] Debian/Ubuntu module
-- [ ] Arch module
-- [ ] Fedora-family module
-- [ ] amd64/arm64/riscv64 release selection
-- [ ] dependency installation
-- [ ] service enable/autostart
-- [ ] initial known-good config creation
-- [ ] health/probation gate
-- [ ] upgrade + binary/config rollback
-- [ ] Synology profile
-- [ ] final validation report
+- [x] single `install.sh` framework
+- [x] default / `--tui` / `--silent`
+- [x] Debian/Ubuntu module
+- [x] Arch module
+- [x] Fedora-family module
+- [x] amd64/arm64/riscv64 selection
+- [x] dependency installation
+- [x] service enable/autostart transaction
+- [ ] initial known-good config creation after runtime health probation
+- [x] health/probation gate logic
+- [x] upgrade snapshot + project/NUT rollback framework
+- [x] optional Synology profile
+- [x] final validation/deployment report
+- [ ] close installer acceptance after full agent runtime stays healthy
 
 ### Cockpit
 
@@ -102,34 +103,33 @@ The P0 architecture/readiness blockers are resolved. Core safety libraries are n
 
 ### Tests
 
-- [x] Go unit-test suite running in CI
-- [x] fake-command NUT parser/FSD tests
-- [x] state corruption/current→previous fallback tests
-- [x] config rollback/probation/interrupted-validation tests
-- [x] recovery 80% gate and post-commit charge hysteresis tests
-- [x] basic power-bounce/recovery-interruption tests
-- [x] Unix-socket GetHealth integration test
-- [ ] IPC peer-credential/authorization tests
-- [ ] torn-write fault injection at every state-store rename/fsync point
+- [x] Go unit tests for implemented core libraries
+- [ ] fake NUT integration harness
+- [x] state-store fault injection unit coverage
+- [ ] IPC authorization tests
+- [x] config rollback tests
 - [ ] repeated interrupted-boot integration tests
-- [ ] real NUT primary/secondary FSD integration tests
-- [x] Synology acceptance test procedure documented
+- [x] power-bounce state-machine tests
+- [x] recovery 80% gate tests
+- [ ] FSD primary/secondary integration tests
+- [ ] Synology acceptance test procedure execution
 - [ ] hardware UPS acceptance on amd64
 - [ ] hardware UPS acceptance on arm64
-- [ ] riscv64 hardware/smoke acceptance
+- [ ] riscv64 hardware smoke test
 
 ### Release
 
-- [x] CI test/vet/multi-arch build workflow
-- [ ] publish multi-arch binary artifacts
+- [x] CI build/test workflow
+- [x] multi-arch compile verification
+- [ ] release multi-arch binary artifacts
 - [ ] Cockpit bundle
-- [ ] SHA256SUMS release artifact
-- [ ] release installer
-- [ ] upgrade/rollback release test
+- [ ] SHA256SUMS
+- [ ] release installer bundle
+- [ ] upgrade/rollback end-to-end test
 - [x] README
 - [ ] LICENSE decision
 - [x] SECURITY
-- [x] THIRD_PARTY_NOTICES before copied source
+- [x] THIRD_PARTY_NOTICES
 - [x] CHANGELOG
 
 ## v0.2 — Administration and adapters
