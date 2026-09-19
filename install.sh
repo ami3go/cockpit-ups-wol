@@ -37,7 +37,7 @@ while (($#)); do
   esac
   shift
 done
-(( SILENT && MODE == tui )) && die "--silent and --tui cannot be combined"
+if ((SILENT)) && [[ "$MODE" == tui ]]; then die "--silent and --tui cannot be combined"; fi
 [[ "$PROFILE" == existing ]] && PROFILE=existing-nut
 case "$PROFILE" in
   local-server|remote-client|existing-nut) ;;
@@ -50,8 +50,6 @@ source "$SELF_DIR/scripts/install/discovery.sh"
 source "$SELF_DIR/scripts/install/validate.sh"
 source "$SELF_DIR/scripts/install/cockpit.sh"
 source "$SELF_DIR/scripts/install/transaction.sh"
-# TUI helpers are sourced later by the full wizard implementation; discovery
-# already uses them automatically when they are available.
 [[ -f "$SELF_DIR/scripts/install/tui.sh" ]] && source "$SELF_DIR/scripts/install/tui.sh"
 if ((CHECK_ONLY)); then installer_self_check; exit 0; fi
 require_root
