@@ -43,9 +43,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Bash syntax
-        run: bash -n install.sh scripts/install/common.sh scripts/install/nut.sh scripts/install/validate.sh scripts/install/distros/*.sh
+        run: bash -n install.sh scripts/install/common.sh scripts/install/nut.sh scripts/install/validate.sh scripts/install/transaction.sh scripts/install/distros/*.sh scripts/test/install-e2e.sh
       - name: Installer self-check
         run: |
           ./install.sh --check --profile local-server
           ./install.sh --check --profile remote-client
           ./install.sh --check --profile existing-nut
+
+  installer-e2e:
+    needs: [agent, installer]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: agent/go.sum
+      - name: Real NUT dummy-ups + systemd install/rollback acceptance
+        run: ./scripts/test/install-e2e.sh

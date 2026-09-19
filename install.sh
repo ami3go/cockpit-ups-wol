@@ -22,6 +22,7 @@ platform_detect
 source "$SELF_DIR/scripts/install/distros/${DISTRO_FAMILY}.sh"
 source "$SELF_DIR/scripts/install/nut.sh"
 source "$SELF_DIR/scripts/install/validate.sh"
+source "$SELF_DIR/scripts/install/transaction.sh"
 if ((CHECK_ONLY)); then installer_self_check; exit 0; fi
 require_root; log_init; trap 'install_failure "$LINENO" "$?"' ERR
 resolve_profile_inputs; confirm_install; backup_begin; install_packages; install_project_dirs; install_project_binaries; install_project_config

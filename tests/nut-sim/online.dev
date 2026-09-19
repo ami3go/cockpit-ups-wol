@@ -1,0 +1,4 @@
+ups.status: OL
+battery.charge: 100
+battery.runtime: 3600
+ups.model: cockpit-ups-wol CI simulator
