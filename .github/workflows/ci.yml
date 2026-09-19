@@ -37,3 +37,15 @@ jobs:
       - name: Build riscv64
         env: {GOOS: linux, GOARCH: riscv64}
         run: go build ./cmd/...
+
+  installer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bash syntax
+        run: bash -n install.sh scripts/install/common.sh scripts/install/nut.sh scripts/install/validate.sh scripts/install/distros/*.sh
+      - name: Installer self-check
+        run: |
+          ./install.sh --check --profile local-server
+          ./install.sh --check --profile remote-client
+          ./install.sh --check --profile existing-nut
