@@ -1,78 +1,69 @@
 # Changelog
 
-All notable project changes will be documented here.
-
-The project is currently pre-release.
+All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-### Architecture and safety model
+### Architecture and requirements
 
-- Defined Cockpit as management-only, outside the safety-critical path.
-- Defined Go agent/CLI, Go WoL helper, TypeScript/React/PatternFly Cockpit UI and Bash installer baseline.
-- Added canonical power-state model including `BOOT_RECONCILE`, shutdown/recovery commit points and `FAILED_SAFE`.
-- Defined outage trigger precedence and recovery hysteresis.
-- Defined UPS-backed controller and required network-infrastructure deployment model.
-- Defined NUT primary/secondary/FSD/final output-shutdown ownership.
-- Defined default automatic recovery gate of 80% UPS charge with fallback hierarchy.
+- Defined NUT/Cockpit/WoL safety architecture.
+- Added Synology DSM compatibility requirements.
+- Added deterministic shutdown and recovery state model including `BOOT_RECONCILE`, commit points and `FAILED_SAFE`.
+- Added explicit NUT FSD/output-off ownership model.
+- Added outage trigger precedence, recovery hysteresis and communication-loss behavior.
+- Made UPS-backed controller/network topology a deployment requirement.
+- Added health supervision, bounded autofix, automatic service startup and configuration rollback requirements.
+- Added interrupted-boot and repeated-power-loss recovery requirements.
 
-### Reliability
+### Configuration and state
 
-- Added automatic service startup requirements.
-- Added independent health supervisor requirements.
-- Added bounded autofix/circuit-breaker behavior.
-- Added transactional configuration revisions and automatic last-known-good rollback.
-- Added interrupted-boot and repeated-power-bounce recovery requirements.
-- Added power-loss-safe state generation and checksum model.
+- Added canonical versioned configuration schema and example.
+- Added persistent power-state schema with sequence ordering and per-host progress.
+- Added immutable known-good configuration revision design.
+- Added power-loss-safe state/config write requirements.
+- Added Unix-socket IPC contract between Cockpit/CLI and the agent.
+- Added formal `monitor`, `dry-run`, `armed` and `maintenance` operating modes.
 
-### Configuration and interfaces
+### Research and compatibility
 
-- Added canonical config schema and example.
-- Added canonical persistent state schema.
-- Added local Unix-domain JSON IPC contract.
-- Added operating modes: monitor, dry-run, armed, maintenance.
-- New installations are specified to default to dry-run.
+- Added deep open-source related-project reuse assessment.
+- Added focused NUT and Synology integration documentation.
+- Added security model and third-party attribution process.
+- Added project readiness audit and v0.1 roadmap/backlog.
 
-### Integration
+### Implementation
 
-- Added first-class Synology DSM compatibility model.
-- Added NUT local-server, remote-client and existing-installation profiles.
-- Added network dependency model for switches/routers and ordered recovery.
-- Added multi-interface/broadcast WoL requirements.
-
-### Installation/release planning
-
-- Reconciled installer with health, probation, rollback and interrupted-install requirements.
-- Added multi-architecture targets: amd64, arm64, riscv64.
-- Added implementation roadmap and GitHub implementation epics.
-- Added release acceptance test plan.
-- Added security and third-party attribution requirements.
+- Added Go agent/CLI foundation and multi-architecture compile verification.
+- Added crash-safe persistent state store with checksum and previous-generation fallback.
+- Added normalized NUT adapter with fail-safe `UNKNOWN` handling and primary-role FSD validation.
+- Added deterministic power state machine, durable commit coordinator, host planning and ordered recovery logic.
+- Added WoL packet generator, sender and durable retry/reconciliation logic.
+- Added transactional configuration manager with runtime probation and automatic last-known-good rollback.
+- Added durable health supervisor, bounded autofix circuit breaker, systemd watchdog support and health IPC.
+- Added transactional installer framework with distro modules, service autostart, NUT-safe setup, rollback snapshots, health probation and installer CI checks.
 
 ### Documentation
 
-- Added/updated:
-  - `README.md`
-  - `SOFTWARE_ARCHITECTURE.md`
-  - `ROADMAP.md`
-  - `docs/INSTALLATION_REQUIREMENTS.md`
-  - `docs/RELIABILITY_REQUIREMENTS.md`
-  - `docs/BOOT_RECOVERY_REQUIREMENTS.md`
-  - `docs/NUT_SHUTDOWN_MODEL.md`
-  - `docs/POWER_POLICY.md`
-  - `docs/CONFIGURATION.md`
-  - `docs/STATE_MODEL.md`
-  - `docs/IPC.md`
-  - `docs/IMPLEMENTATION_DECISIONS.md`
-  - `docs/OPERATING_MODES.md`
-  - `docs/DEPLOYMENT.md`
-  - `docs/SECURITY.md`
-  - `docs/NUT.md`
-  - `docs/SYNOLOGY.md`
-  - `docs/TEST_PLAN.md`
-  - `docs/RELATED_PROJECTS.md`
-  - `docs/READINESS_AUDIT.md`
-  - `THIRD_PARTY_NOTICES.md`
+- Added `README.md`.
+- Added `docs/CONFIGURATION.md`.
+- Added `docs/STATE_MODEL.md`.
+- Added `docs/NUT_SHUTDOWN_MODEL.md`.
+- Added `docs/POWER_POLICY.md`.
+- Added `docs/IPC_API.md`.
+- Added `docs/IMPLEMENTATION_DECISIONS.md`.
+- Added `docs/DEPLOYMENT.md`.
+- Added `docs/OPERATING_MODES.md`.
+- Added `docs/SECURITY.md`.
+- Added `docs/TEST_PLAN.md`.
+- Added `docs/NUT.md`.
+- Added `docs/SYNOLOGY.md`.
+- Added `THIRD_PARTY_NOTICES.md`.
 
-## Pre-project design history
+### Pending before first release
 
-Earlier design iterations established the initial goals of NUT-based UPS sharing, safe shutdown, Synology support, Cockpit management, and automatic restore after utility return and UPS recharge.
+- Full long-running agent runtime loop and host action adapters.
+- Cockpit management frontend.
+- End-to-end installer acceptance on supported distributions.
+- Real UPS/Synology hardware acceptance.
+- Release artifact/checksum pipeline.
+- Project license decision.
