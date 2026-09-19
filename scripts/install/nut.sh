@@ -11,9 +11,9 @@ nut_write_clean_local_server(){
   driver = $driver
   port = $port
 EOF
-  cat >"$nut_dir/upsd.conf" <<'EOF'
-LISTEN 0.0.0.0 3493
-EOF
+  : >"$nut_dir/upsd.conf"
+  ((NUT_LISTEN_IPV4)) && printf 'LISTEN 0.0.0.0 3493\n' >>"$nut_dir/upsd.conf"
+  ((NUT_LISTEN_IPV6)) && printf 'LISTEN :: 3493\n' >>"$nut_dir/upsd.conf"
   cat >"$nut_dir/upsd.users" <<EOF
 [ups-primary]
   password = $pw
@@ -61,6 +61,6 @@ nut_configure(){
   printf '%s\n' "$pw" >"$ETC_DIR/secrets/nut-primary-password"
   chmod 0600 "$ETC_DIR/secrets/nut-primary-password"
   nut_write_clean_local_server "$pw" "$syn" "$UPS_DRIVER" "$UPS_PORT"
-  log "created minimal local NUT server config for UPS '$UPS_NAME' driver '$UPS_DRIVER' port '$UPS_PORT'"
-  ((syn)) && warn "Synology monuser/secret enabled; keep NUT on a trusted LAN unless restricted mode is configured" || true
+  log "created local NUT server config for UPS '$UPS_NAME' driver '$UPS_DRIVER' port '$UPS_PORT' network '$NETWORK_MODE'"
+  ((syn)) && warn "Synology monuser/secret enabled; keep NUT on a trusted/restricted protected LAN" || true
 }
