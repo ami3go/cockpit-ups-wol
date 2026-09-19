@@ -1,59 +1,41 @@
 # cockpit-ups-wol — Software Architecture
 
-**Architecture version:** 0.2  
-**Status:** Implementation baseline
+**Architecture version:** 0.3  
+**Status:** Canonical implementation baseline  
+**Normative companions:** `docs/INSTALLATION_REQUIREMENTS.md`, `docs/RELIABILITY_REQUIREMENTS.md`, `docs/BOOT_RECOVERY_REQUIREMENTS.md`
 
 ## 1. Purpose
 
-`cockpit-ups-wol` is a lightweight homelab power-management system built around Network UPS Tools (NUT), Cockpit and Wake-on-LAN.
+`cockpit-ups-wol` is a lightweight homelab and small-network power-management system built around Network UPS Tools (NUT), Cockpit and Wake-on-LAN.
 
-Its core functions are:
+The system SHALL:
 
-- monitor a locally or remotely connected UPS
-- provide NUT service to network devices
-- support Synology NAS as a NUT client
-- safely shut down network devices during an extended power outage
-- shut down the controller itself last when required
-- persist outage/recovery state
-- recover automatically after utility power returns
-- wait until the UPS has recharged to a configurable level, default **80%**
-- wake devices in a configurable order using Wake-on-LAN
-- provide management and configuration through Cockpit
+- monitor a locally or remotely connected UPS through NUT
+- provide NUT service to protected network devices
+- support Synology DSM as a first-class NUT client
+- safely shut down managed devices during an extended outage
+- shut down the controller last when controller shutdown is required
+- persist the complete outage/recovery transaction
+- survive service crashes, controller reboot and repeated interrupted boots
+- automatically recover after utility power is proven stable
+- wait for UPS recharge, defaulting to **80%** when `battery.charge` is available
+- restore only eligible devices in configured order
+- provide management through Cockpit without depending on Cockpit for safety-critical behavior
+- automatically start, health-check and recover required runtime services
+- apply configuration transactionally and automatically roll back failed changes
 
-The system is intended primarily for protected home and small-lab networks.
+## 2. Core safety principles
 
-## 2. Core Design Principle
+1. **Cockpit is not in the critical path.** The browser and Cockpit extension may be unavailable without disabling outage protection.
+2. **NUT is authoritative for UPS communication.** This project does not reimplement UPS drivers.
+3. **Unknown is not healthy.** Missing/invalid UPS data becomes `UNKNOWN`; it never silently becomes `OL` or 100% battery.
+4. **Boot is not recovery.** Every agent start begins in `BOOT_RECONCILE` and a boot never proves utility stability.
+5. **Destructive actions have durable commit points.** Shutdown/recovery intent is persisted and fsynced before the first external action.
+6. **Configuration is transactional.** A candidate becomes known-good only after validation and runtime probation.
+7. **Failure must converge safely.** Unrecoverable uncertainty enters `FAILED_SAFE`, inhibiting destructive automation.
+8. **The controller remains available longest.** It is powered from UPS-backed power and shuts down after managed loads.
 
-Cockpit is the management interface, not the critical power-control engine.
-
-Critical power protection SHALL continue to function when:
-
-- no browser is open
-- Cockpit is stopped
-- the Cockpit extension fails
-- the controller reboots during an outage
-- the Cockpit UI is being upgraded
-
-The critical path is:
-
-```text
-UPS
- │
- ▼
-NUT
- │
- ▼
-cockpit-ups-wol-agent
- │
- ├── shutdown policy
- ├── recovery policy
- ├── persistent state
- └── Wake-on-LAN
-```
-
-Cockpit configures and observes this system.
-
-## 3. High-Level Architecture
+## 3. High-level architecture
 
 ```text
                          Browser
@@ -64,53 +46,69 @@ Cockpit configures and observes this system.
                             ▼
                   cockpit-ups-wol UI
                             │
-                 configuration/status
+                  local authenticated IPC
                             │
                             ▼
               cockpit-ups-wol-agent
                  persistent service
-                 │       │        │
-                 │       │        └──── wolctl
-                 │       │                 │
-                 │       │                 ▼
-                 │       │            LAN devices
-                 │       │
-                 │       └──── persistent state
-                 │
-                 ▼
-                NUT
-                 │
-        ┌────────┴─────────┐
-        │                  │
-        ▼                  ▼
-     Local UPS        Remote NUT server
-        │
-        USB
+        ┌──────────────┼──────────────┐
+        │              │              │
+        ▼              ▼              ▼
+      NUT        persistent state    wolctl
+        │              │              │
+   ┌────┴────┐         │              ▼
+   │         │         │          LAN devices
+Local UPS  Remote NUT  │
+   │                   │
+ USB/serial            │
+                       ▼
+                config revision store
 
+Independent supervision:
 
-Network NUT clients
-        │
-        ├── Synology NAS
-        ├── Proxmox
-        ├── Linux servers
-        └── other NUT clients
+systemd ──► process restart/watchdog
+health timer ──► stack validation / bounded autofix / rollback
 ```
 
-## 4. Main Components
+## 4. Implementation baseline
 
-### 4.1 NUT
+The v0.1 implementation SHALL use:
 
-NUT remains responsible for:
+```text
+Agent / config manager / health helper   Go
+wolctl                                   Go
+Cockpit frontend                         TypeScript + React + PatternFly
+Installer                                Bash with distro modules
+UPS backend                              distribution NUT packages/services
+Runtime service manager                  systemd
+Runtime logs                             journald
+Configuration                            YAML, validated against a versioned schema
+Agent IPC                                Unix-domain socket with local authorization boundary
+```
 
-- UPS hardware communication
-- UPS variables
-- UPS status
-- client/server UPS communication
-- standard NUT shutdown coordination
-- UPS instant commands
-- writable UPS variables
+Target release architectures:
 
-Version 0.x SHALL use standard NUT tools where practical:
+```text
+amd64
+arm64
+riscv64
+```
+
+Optional later target: `armhf`.
+
+## 5. Main components
+
+### 5.1 NUT
+
+NUT owns:
+
+- UPS hardware drivers
+- UPS variables and status
+- NUT client/server protocol
+- standard `upsmon` primary/secondary synchronization
+- UPS shutdown handoff at the end of a critical shutdown
+
+Version 0.x uses installed NUT tools/services where practical, including:
 
 ```text
 upsc
@@ -118,13 +116,12 @@ upsrw
 upscmd
 upsmon
 upsd
+upsdrvctl / distro service-aware equivalents
 ```
 
-The project SHALL NOT reimplement UPS drivers.
+Exact shutdown ownership is defined in `docs/NUT_SHUTDOWN_MODEL.md`.
 
-### 4.2 cockpit-ups-wol-agent
-
-The agent is a core component.
+### 5.2 cockpit-ups-wol-agent
 
 Systemd service:
 
@@ -134,178 +131,214 @@ cockpit-ups-wol-agent.service
 
 Responsibilities:
 
-- observe NUT status
-- maintain outage state machine
-- snapshot host state before shutdown
-- initiate managed host shutdown
-- coordinate shutdown ordering
-- persist recovery information
-- resume after reboot
-- detect stable utility power
-- wait for UPS recharge threshold
-- wait for network readiness
-- wake hosts in configured order
-- record all decisions to journald
+- enter `BOOT_RECONCILE` on every process start
+- observe and normalize NUT state
+- execute the power state machine
+- snapshot pre-outage host state
+- coordinate managed shutdown policy
+- persist transaction and per-host action state
+- resume safely after reboot
+- evaluate recovery gates
+- restore eligible hosts in configured order
+- expose status/control over authenticated local IPC
+- write decisions and failures to journald
 
-The agent SHALL remain lightweight and suitable for ARM64, RISC-V64 and AMD64.
+The agent SHALL NOT infer successful UPS state from communication failure.
 
-### 4.3 wolctl
+### 5.3 Configuration manager
 
-`wolctl` is a small helper responsible for:
+Configuration changes from Cockpit, installer, CLI/TUI, migration or autofix SHALL pass through one transaction manager.
 
-- building Wake-on-LAN magic packets
-- validating MAC addresses
-- selecting interface/broadcast address
-- sending WoL packets
-- optionally checking host state
-
-Example:
-
-```bash
-wolctl wake server
-wolctl status server
-wolctl status --all
-```
-
-Implementation SHOULD use Go so release binaries can be provided without runtime dependencies.
-
-### 4.4 Cockpit extension
-
-Cockpit provides:
-
-- UPS status
-- service status
-- outage/recovery state
-- battery level
-- runtime
-- UPS measurements
-- host management
-- Wake buttons
-- shutdown/recovery configuration
-- event/log viewer
-- NUT configuration
-- Synology compatibility configuration
-- battery test and permitted UPS commands
-
-Cockpit SHALL NOT be required for automatic recovery.
-
-## 5. Power State Machine
-
-The agent SHALL implement an explicit state machine.
+Required revision pointers:
 
 ```text
-                 ┌─────────────┐
-                 │   NORMAL    │
-                 └──────┬──────┘
-                        │ OB
-                        ▼
-                ┌───────────────┐
-                │  ON_BATTERY   │
-                └───┬───────┬───┘
-                    │       │
-          power back│       │shutdown trigger
-                    │       ▼
-                    │  ┌──────────────────────┐
-                    │  │ SHUTDOWN_IN_PROGRESS │
-                    │  └──────────┬───────────┘
-                    │             ▼
-                    │    ┌─────────────────┐
-                    │    │ WAITING_FOR_AC  │
-                    │    └────────┬────────┘
-                    │             │ AC restored
-                    │             ▼
-                    │    ┌─────────────────┐
-                    └───►│  RECOVERY_WAIT  │
-                         └────────┬────────┘
-                                  │ requirements met
-                                  ▼
-                         ┌─────────────────┐
-                         │ RESTORE_HOSTS   │
-                         └────────┬────────┘
-                                  ▼
-                                NORMAL
+active
+last-known-good
+previous-known-good
 ```
 
-State changes SHALL be persisted.
-
-## 6. Outage Detection
-
-The normal NUT status is:
+Candidate lifecycle:
 
 ```text
-OL
+candidate → validating → known-good
+                    └──→ failed → rolled-back
 ```
 
-Utility power failure typically produces:
+The canonical user schema is defined in `docs/CONFIGURATION.md` and `schemas/config.schema.json`.
+
+### 5.4 Health supervisor
+
+Recommended units:
 
 ```text
-OB
+cockpit-ups-wol-health.service
+cockpit-ups-wol-health.timer
 ```
 
-The agent SHALL support a configurable grace period before beginning shutdown logic.
+The health service is a short-lived check/repair process. It validates:
 
-Example:
+- required service enabled/active state
+- agent heartbeat
+- NUT availability appropriate to the selected profile
+- active configuration integrity
+- state-store integrity
+- required runtime directories/permissions
+- required network/helper dependencies
+
+Safe repairs are bounded and observable. Repeated failure enters `FAILED_SAFE` rather than an endless restart loop.
+
+### 5.5 wolctl
+
+`wolctl` validates and sends Wake-on-LAN packets and may perform host status checks.
+
+Per-host wake configuration supports:
 
 ```yaml
-outage:
-  grace_period_seconds: 120
+wake:
+  enabled: true
+  mac: "AA:BB:CC:DD:EE:FF"
+  interface: eth0
+  broadcast: 192.168.1.255
+  port: 9
+  priority: 20
+  delay_after_previous_seconds: 30
 ```
 
-This prevents short power interruptions from causing unnecessary shutdowns.
+### 5.6 Cockpit extension
 
-Shutdown conditions MAY include:
-
-- time on battery
-- `LB` low-battery state
-- battery percentage
-- remaining runtime
-- explicit NUT FSD condition
-
-## 7. Host State Snapshot
-
-Before managed shutdown begins, the agent SHALL record which managed hosts are online.
-
-Example:
-
-```json
-{
-  "outage_id": "2026-09-19T15:23:11Z",
-  "hosts": {
-    "nas": true,
-    "proxmox": true,
-    "desktop": false,
-    "workstation": true
-  }
-}
-```
-
-Persistent state location:
+Primary pages:
 
 ```text
-/var/lib/cockpit-ups-wol/state.json
+Overview
+UPS
+Devices
+Automation
+Reliability
+Settings
+Logs
 ```
 
-Writes SHALL be atomic.
+Cockpit SHALL expose status and configuration but SHALL NOT directly edit runtime state files or bypass the transaction manager.
 
-The recovery process SHOULD normally wake only hosts that were running before the outage.
+## 6. Operating modes
 
-Per-host override:
+The application SHALL support:
 
-```yaml
-restore_policy: previous-state
+```text
+monitor
+ dry-run
+ armed
+ maintenance
 ```
 
-Other supported policies:
+Semantics:
+
+- `monitor`: observe only; no managed shutdown or wake actions.
+- `dry-run`: evaluate and record planned actions but do not execute external destructive/recovery actions.
+- `armed`: normal automatic shutdown/recovery behavior.
+- `maintenance`: inhibit automatic power actions while permitting explicit authorized diagnostics/manual operations.
+
+A new installation SHALL default to `dry-run` until the administrator explicitly arms automation.
+
+## 7. Canonical power state machine
+
+```text
+BOOT_RECONCILE
+      │
+      ├── unsafe/unknown ───────────────► FAILED_SAFE (when unrecoverable)
+      │
+      ▼
+    NORMAL
+      │ OB
+      ▼
+ ON_BATTERY
+      │ shutdown trigger
+      ▼
+SHUTDOWN_COMMITTED
+      │ persisted + fsynced
+      ▼
+SHUTDOWN_IN_PROGRESS
+      │
+      ▼
+ WAITING_FOR_AC
+      │ valid OL
+      ▼
+ RECOVERY_WAIT
+      │ all recovery gates pass
+      ▼
+ RECOVERY_STARTED
+      │ persisted + fsynced
+      ▼
+ RESTORE_HOSTS
+      │ completed
+      ▼
+    NORMAL
+```
+
+Every state transition that changes external-action eligibility SHALL be persisted.
+
+`SHUTDOWN_COMMITTED` is the point of no return for the current outage transaction. Before it, restored stable utility may cancel the pending outage. After it, the system SHALL reconcile/complete the committed shutdown transaction rather than pretending no shutdown started.
+
+`RECOVERY_STARTED` is persisted before the first wake/recovery action.
+
+## 8. UPS normalized states
+
+At minimum the agent SHALL distinguish:
+
+```text
+ONLINE
+ON_BATTERY
+LOW_BATTERY
+FORCED_SHUTDOWN
+UNKNOWN
+```
+
+Raw NUT tokens including `OL`, `OB`, `LB`, `FSD`, `CHRG`, `DISCHRG`, `BYPASS`, `OVER`, `OFF` SHALL be retained for diagnostics.
+
+Communication failure and missing status SHALL normalize to `UNKNOWN`.
+
+## 9. Outage triggers and precedence
+
+The canonical trigger policy is defined in `docs/CONFIGURATION.md`; the following safety precedence applies:
+
+1. explicit/observed `FSD` → shutdown is committed immediately
+2. `OB` + `LB` → shutdown is committed immediately unless already in a later state
+3. configured critical runtime threshold while `OB` → commit shutdown
+4. configured critical battery threshold while `OB` → commit shutdown
+5. configured maximum time-on-battery while `OB` → commit shutdown
+6. ordinary `OB` → remain in grace/monitoring until a trigger is reached
+7. communication loss → `UNKNOWN`; never assume restored power
+
+If utility returns before `SHUTDOWN_COMMITTED`, the outage may be cancelled after valid state reconciliation. If utility returns after commit, the current shutdown transaction remains committed.
+
+## 10. Host state snapshot and per-host progress
+
+Before managed shutdown begins, record each host's pre-outage eligibility and progress.
+
+Typical durable fields:
+
+```text
+was_online
+shutdown_state: planned/requested/acknowledged/completed/unknown/not_required
+recovery_state: waiting/wol_sent/online/failed/not_required
+retry counters
+last verification result
+```
+
+Default restore policy:
 
 ```text
 previous-state
+```
+
+Additional policies:
+
+```text
 always
 never
 ```
 
-## 8. Shutdown Methods
-
-Each host SHALL define how shutdown is managed.
+## 11. Shutdown methods and ordering
 
 Supported methods:
 
@@ -316,679 +349,341 @@ command
 none
 ```
 
-### nut
+Lower numerical shutdown priority runs first. The controller uses the final/highest priority and remains operational as long as practical.
 
-Preferred where the device supports NUT.
+Arbitrary shell interpolation from Cockpit input is prohibited. `command` actions must resolve to configured/allowlisted helpers and arguments.
 
-Examples:
+Host shutdown success SHOULD require multiple consistent observations rather than a single ping failure.
 
-- Synology NAS
-- Linux servers
-- Proxmox hosts using NUT
+## 12. Synology DSM
 
-The NUT client handles its own safe shutdown.
+Synology is a first-class NUT secondary/client profile.
 
-### ssh
-
-For hosts requiring a remote shutdown command.
-
-Example:
-
-```yaml
-shutdown:
-  method: ssh
-  user: powerctl
-  command: sudo systemctl poweroff
-```
-
-Authentication SHOULD use dedicated SSH keys.
-
-### command
-
-Allows a controlled local helper executable.
-
-Arbitrary shell interpolation from Cockpit input SHALL NOT be permitted.
-
-### none
-
-The controller observes the device but does not shut it down.
-
-## 9. Synology NAS
-
-Synology NAS SHALL be a first-class supported NUT client.
-
-The compatibility preset SHALL use:
+Compatibility preset:
 
 ```text
 UPS name: ups
-NUT port: 3493
+NUT TCP port: 3493
 monitor account: monuser
 compatibility password: secret
+role: upsmon secondary
 ```
 
-The compatibility account SHALL be monitoring-only.
+Legacy NUT syntax may use `slave` where required.
 
-On current NUT versions:
+The compatibility account SHALL NOT receive administrative `SET`, `FSD` or unrestricted instant-command permissions.
 
-```ini
-[monuser]
-    password = secret
-    upsmon secondary
-```
+When a Synology host uses `shutdown.method: nut`, the agent SHALL NOT also SSH-shutdown it.
 
-On older NUT versions the installer MAY use the legacy equivalent:
+## 13. Controller power topology
 
-```ini
-upsmon slave
-```
+The controller SBC SHALL be connected to a **battery-backed UPS output**, unless it has an equivalent independent backed power source.
 
-The Synology compatibility account MUST NOT receive:
+It SHALL NOT be connected only to a surge-only/non-backed outlet.
+
+The UPS data link may simultaneously be USB/serial/network:
 
 ```text
-actions = SET
-actions = FSD
-instcmds = ALL
+UPS backed output ──► SBC PSU
+UPS USB/serial    ──► SBC/NUT driver
 ```
 
-or other administrative permissions.
+Network infrastructure needed for shutdown coordination (at minimum the required switch, and router/VLAN infrastructure where needed for local reachability) SHALL remain powered long enough for shutdown coordination.
 
-Synology shutdown SHALL normally be performed by Synology's own NUT client.
+Controller hardware SHALL automatically boot when backed output power returns. SBCs normally satisfy this; PC-class hardware must use firmware settings such as `Restore on AC Power Loss = Power On`.
 
-The agent SHALL NOT independently SSH-shutdown the NAS when its shutdown method is:
+## 14. Controller shutdown policy
+
+Managed heavy loads shut down before the controller.
+
+The controller SHOULD remain running after other hosts are down while battery/runtime remains sufficient because its load is normally small and it is the recovery coordinator.
+
+Controller shutdown may be triggered by a dedicated late threshold such as:
 
 ```text
-nut
+NUT LB/FSD
+critical runtime
+controller-specific battery threshold
 ```
 
-## 10. Shutdown Ordering
+The exact policy is configurable. Before controller poweroff, state and configuration transaction metadata SHALL be durably synchronized.
 
-Managed devices SHALL support shutdown priorities.
+## 15. Recovery gates
 
-Example:
-
-```yaml
-shutdown:
-  priority: 20
-  timeout_seconds: 120
-```
-
-Lower priority values shut down first.
-
-Example:
-
-```text
-Desktop              priority 10
-NAS                   priority 20
-Application server    priority 30
-Proxmox               priority 40
-UPS controller        priority 100
-```
-
-The controller SHALL shut down last.
-
-The agent SHALL wait for configured timeout/confirmation before progressing where practical.
-
-## 11. Controller Shutdown
-
-The controller SBC SHALL remain operational as long as practical so it can coordinate other systems.
-
-If the UPS reaches the controller shutdown condition:
-
-```text
-network clients shutdown
-        ↓
-managed hosts shutdown
-        ↓
-state persisted
-        ↓
-controller powers off LAST
-```
-
-The system SHALL persist enough state before shutdown to continue recovery after boot.
-
-## 12. Recovery Conditions
-
-Automatic recovery SHALL be configurable.
-
-Default:
+Default recovery policy:
 
 ```yaml
 recovery:
   enabled: true
-  battery_charge_min: 80
   utility_stable_seconds: 120
+  battery_charge_min: 80
   network_wait_seconds: 300
 ```
 
-Recovery SHALL require:
+Before `RECOVERY_STARTED`, require:
 
-1. utility power restored
-2. UPS no longer reporting `OB`
-3. utility power stable for configured period
-4. network available
-5. UPS battery sufficiently recovered
-6. no unresolved safety/error state
+1. valid NUT data
+2. utility state proven `OL`
+3. continuous utility stability for the configured interval
+4. battery/recovery policy satisfied
+5. required network ready
+6. active configuration known-good
+7. stack health not safety-critical
+8. no unresolved power/config transaction
 
-Default minimum battery level:
+The stability timer uses monotonic time and restarts after every uncontrolled reboot or loss of trustworthy `OL` evidence.
 
-```text
-80%
-```
-
-## 13. Battery-Recovery Fallback
-
-Not every UPS reports:
-
-```text
-battery.charge
-```
-
-The recovery policy SHALL therefore support:
-
-```text
-percentage
-runtime
-time
-manual
-```
+## 16. Battery recovery fallback
 
 Preferred hierarchy:
 
 ```text
-battery.charge available
-        │
-        └── wait for >= configured percentage
-
-otherwise battery.runtime available
-        │
-        └── use configured minimum runtime
-
-otherwise
-        │
-        └── wait configured recharge time
-
-unsupported/uncertain
-        │
-        └── manual recovery
+battery.charge available → require configured percentage (default 80%)
+else battery.runtime available → require configured runtime threshold
+else configured recharge time → wait configured interval while valid OL persists
+else → manual recovery
 ```
 
-The agent SHALL NOT silently guess an unsafe battery threshold.
+The agent SHALL never substitute an assumed 100% value.
 
-Cockpit SHALL show which recovery method is active.
+Once recovery is committed, a minor charge decrease (for example 80% → 79% after loads start) does not itself reverse recovery. A real unsafe condition such as `OB`, `LB`, `FSD`, or loss of trustworthy UPS state causes reconciliation/outage handling.
 
-## 14. Network Readiness
+## 17. Network readiness and dependencies
 
-Before Wake-on-LAN recovery starts, the system SHALL verify network readiness.
+Recovery readiness may check:
 
-Possible checks:
+- link carrier
+- address assignment
+- required route
+- gateway or configured management target reachability
+- required switch/router dependency readiness
 
-- Ethernet carrier
-- interface has address
-- route available
-- gateway reachable
-- configured management target reachable
+A dependency can be marked `auto-power`/`wait-only` when it cannot be awakened by WoL. Recovery SHALL wait for dependencies in configured order rather than assuming every device has WoL.
 
-Failure SHALL cause retries until `network_wait_seconds` expires.
+## 18. Wake ordering
 
-It SHALL NOT immediately abandon the recovery process because DHCP or a switch is still starting.
-
-## 15. Wake Ordering
-
-Wake configuration SHALL support:
-
-```yaml
-wake:
-  enabled: true
-  priority: 20
-  delay_after_previous_seconds: 30
-```
-
-Lower priority wakes first.
+Lower wake priority starts first. Recovery should avoid simultaneous inrush/load surge.
 
 Example:
 
 ```text
-Network infrastructure
+network dependencies ready
         ↓
 NAS
         ↓
 Proxmox
         ↓
-Application servers
+application servers
         ↓
-Workstations
+workstations
 ```
 
-This avoids a simultaneous UPS load surge.
+Per-host wake attempts are bounded and persisted.
 
-## 16. Multi-Network Wake-on-LAN
+## 19. NUT network policy
 
-Per-host configuration SHALL support:
-
-```yaml
-wake:
-  mac: "AA:BB:CC:DD:EE:FF"
-  interface: eth0
-  broadcast: 192.168.1.255
-  port: 9
-```
-
-This enables:
-
-- multiple Ethernet interfaces
-- VLANs
-- multiple subnets
-- directed broadcasts where supported
-
-WoL across routed networks SHALL not be assumed automatically.
-
-## 17. Host Status
-
-Host detection SHOULD support:
-
-```text
-auto
-ping
-tcp
-arp
-none
-```
-
-Example:
-
-```yaml
-status:
-  method: tcp
-  port: 22
-  timeout_ms: 1000
-```
-
-TCP checking is useful where ICMP is blocked.
-
-## 18. NUT Network Policy
-
-Default mode:
+Default:
 
 ```text
 trusted-lan
 ```
 
-The project assumes operation behind a home/router firewall.
+NUT may listen on TCP 3493 for protected LAN clients. It SHALL NOT intentionally be exposed to the public Internet.
 
-NUT SHALL be reachable from the LAN on TCP 3493.
-
-Default server listener MAY use:
-
-```ini
-LISTEN 0.0.0.0 3493
-```
-
-and optionally IPv6.
-
-Optional security mode:
+Optional:
 
 ```text
 restricted
 ```
 
-may restrict NUT access by host/subnet using the system firewall.
+Restricted mode must handle every enabled address family. An IPv4-only restriction SHALL NOT leave an unrestricted IPv6 listener.
 
-Restriction SHALL NOT be enabled by default.
+Unknown existing firewall configuration SHALL not be destructively replaced.
 
-NUT MUST NOT be intentionally exposed to the public Internet.
+## 20. Privilege separation and secrets
 
-## 19. NUT Privilege Separation
+Network NUT clients use monitor-only credentials. Administrative UPS actions require a separate local privileged path and explicit authorization/confirmation.
 
-Network UPS clients SHALL use monitoring-only credentials.
+Secrets such as SSH keys and administrative NUT credentials SHALL use dedicated root/service-readable files with minimal permissions and SHALL be redacted from logs and revision diagnostics.
 
-Administrative commands SHALL be separate.
+The Synology compatibility credential is only created when that compatibility mode is explicitly selected.
 
-Example architecture:
+## 21. Persistent configuration
 
-```text
-Synology / NUT clients
-       │
-       └── monitor-only account
-
-Cockpit administrative operation
-       │
-       └── local privileged helper
-```
-
-UPS administrative commands such as:
+Main user configuration:
 
 ```text
-load.off
-shutdown.return
-FSD
-upsrw SET
+/etc/cockpit-ups-wol/config.yaml
 ```
 
-SHALL require Cockpit authorization and explicit confirmation.
-
-## 20. Persistent Configuration
-
-Main directory:
+State and config history:
 
 ```text
-/etc/cockpit-ups-wol/
+/var/lib/cockpit-ups-wol/
+├── state/
+└── config-history/
 ```
 
-Suggested files:
+Configuration contains a schema version and is validated before activation.
+
+Critical writes use the power-loss-resistant sequence:
 
 ```text
-config.yaml
-hosts.yaml
+write temporary file
+→ flush
+→ fsync file
+→ atomic rename
+→ fsync parent directory
 ```
 
-Configuration SHALL contain a schema version:
+## 22. Config transaction and rollback
 
-```yaml
-config_version: 1
+Every project-mediated change:
+
+```text
+lock
+→ create candidate revision
+→ static schema validation
+→ component preflight
+→ atomic activation
+→ reload/restart affected services
+→ immediate health validation
+→ probation
+→ promote to known-good OR rollback
 ```
 
-Future upgrades SHALL provide migrations when the configuration schema changes.
+A reboot never promotes a candidate merely because the machine booted successfully.
 
-## 21. Example Configuration
+## 23. systemd runtime
 
-```yaml
-config_version: 1
-
-nut:
-  server: localhost
-  port: 3493
-
-  network:
-    mode: trusted-lan
-
-  synology_compatibility: true
-
-outage:
-  grace_period_seconds: 120
-
-recovery:
-  enabled: true
-  battery_charge_min: 80
-  utility_stable_seconds: 120
-  network_wait_seconds: 300
-
-hosts:
-
-  - id: synology
-    name: Synology NAS
-    ip: 192.168.1.20
-
-    status:
-      method: tcp
-      port: 5000
-
-    shutdown:
-      method: nut
-      priority: 20
-
-    wake:
-      enabled: true
-      mac: "AA:BB:CC:DD:EE:FF"
-      priority: 20
-      delay_after_previous_seconds: 30
-
-    restore_policy: previous-state
-
-  - id: workstation
-    name: Workstation
-    ip: 192.168.1.30
-
-    shutdown:
-      method: ssh
-      priority: 10
-      timeout_seconds: 90
-
-    wake:
-      enabled: true
-      mac: "11:22:33:44:55:66"
-      broadcast: 192.168.1.255
-      priority: 30
-
-    restore_policy: previous-state
-```
-
-## 22. systemd Services
-
-Expected runtime:
+Typical local-server profile:
 
 ```text
 cockpit.socket
-nut-driver@*.service
+NUT driver service instance(s)
 nut-server.service
 nut-monitor.service
 cockpit-ups-wol-agent.service
+cockpit-ups-wol-health.timer
 ```
 
-The agent SHALL declare appropriate dependencies on network and NUT services.
+Exact NUT service names vary by distribution and are detected by installer modules.
 
-Restart policy SHOULD allow recovery from transient failures without creating restart loops.
+Persistent services SHALL be automatically enabled and configured for bounded recovery. Delayed USB/network/NUT readiness is handled with retry/backoff, not a fragile assumption that all dependencies are immediately ready at boot.
 
-## 23. Logging
+## 24. Health states
 
-Runtime logging SHALL use journald.
+Cockpit/CLI SHALL expose:
 
-Example:
-
-```bash
-journalctl -u cockpit-ups-wol-agent
+```text
+HEALTHY
+DEGRADED
+RECOVERING
+CONFIG_VALIDATING
+ROLLING_BACK
+FAILED_SAFE
 ```
 
-Events SHALL include:
+`FAILED_SAFE` inhibits destructive automatic actions that depend on uncertain state while preserving monitoring where practical.
 
-- utility power lost
-- utility power restored
-- host state snapshot
-- shutdown initiated
-- shutdown success/failure
+## 25. Local IPC
+
+Cockpit communicates with the agent through a root-controlled Unix-domain socket, for example:
+
+```text
+/run/cockpit-ups-wol/agent.sock
+```
+
+Detailed request/authorization semantics are defined in `docs/IPC.md`.
+
+The UI SHALL NOT mutate state or configuration files directly.
+
+## 26. Logging and observability
+
+Runtime logging uses journald. Important events include:
+
+- service startup/restart/autofix
+- config candidate/validation/rollback
+- utility loss/restore
+- UPS communication failure/recovery
+- power-state transitions
+- host snapshot
+- shutdown/recovery commands and verification
 - controller shutdown
-- recovery resumed after boot
-- battery recovery progress
-- network readiness
-- WoL packet sent
-- host recovered
-- timeout/failure
-- configuration error
+- interrupted-boot reconciliation
+- state corruption/fallback
+- entry into `FAILED_SAFE`
 
-A separate database is not required.
+## 27. Simulation and acceptance testing
 
-## 24. Failure Handling
-
-The system SHALL distinguish:
+The implementation SHALL support non-destructive simulation for at least:
 
 ```text
-UPS disconnected
-NUT driver unavailable
-upsd unavailable
-network unavailable
-host unreachable
-shutdown command failed
-battery percentage unavailable
-WoL failed
-invalid configuration
+on-battery
+low-battery
+FSD
+communication loss
+power restored
+power bounce
+battery threshold
+network delay
+controller reboot/interrupted boot
+interrupted shutdown
+interrupted recovery
+config validation failure/rollback
 ```
 
-Failure of one host SHALL not necessarily prevent shutdown/recovery of other hosts.
+New installations default to `dry-run`; simulation never performs real destructive operations unless explicitly authorized by a dedicated test path.
 
-Safety-critical errors SHALL be visible in Cockpit and journald.
-
-## 25. Cockpit UI
-
-Primary pages:
-
-```text
-Overview
-UPS
-Devices
-Automation
-Settings
-Logs
-```
-
-### Overview
-
-Display:
-
-- UPS state
-- battery percentage
-- runtime
-- load
-- utility status
-- agent state
-- recovery threshold
-- managed hosts
-
-### Automation
-
-Configure:
-
-- outage grace period
-- shutdown conditions
-- shutdown priority
-- recovery enabled
-- minimum battery charge
-- stable utility delay
-- recovery order
-- wake delay
-
-### UPS
-
-Provide:
-
-- measurements
-- NUT services
-- supported instant commands
-- writable variables
-- battery tests
-
-Dangerous commands require confirmation.
-
-## 26. Simulation and Testing
-
-The agent SHALL provide a safe simulation/test mechanism.
-
-Examples:
-
-```bash
-cockpit-ups-wol-agent --simulate on-battery
-cockpit-ups-wol-agent --simulate low-battery
-cockpit-ups-wol-agent --simulate power-restored
-```
-
-Simulation SHALL NOT invoke real shutdown or WoL operations unless explicitly requested.
-
-Automated tests SHALL cover:
-
-- OL → OB
-- short outage
-- prolonged outage
-- low battery
-- failed host shutdown
-- controller reboot
-- AC restore
-- unstable AC
-- battery below threshold
-- battery threshold reached
-- missing battery.charge
-- delayed network startup
-- ordered WoL
-- previously-off host remains off
-- Synology NUT client behavior
-
-## 27. Resource Targets
-
-Primary CPU architectures:
-
-```text
-amd64
-arm64
-riscv64
-```
-
-Target systems include:
-
-- Raspberry Pi
-- NanoPi
-- Radxa
-- Orange Pi
-- Milk-V Duo 256M / Duo S
-- x86 mini PCs
-
-The original 64 MB Milk-V Duo is not a target for the full Cockpit stack.
-
-## 28. Repository Layout
+## 28. Repository layout target
 
 ```text
 cockpit-ups-wol/
 ├── README.md
 ├── SOFTWARE_ARCHITECTURE.md
-├── LICENSE
-├── CHANGELOG.md
-│
-├── src/
-│   ├── manifest.json
-│   ├── app/
-│   ├── components/
-│   └── api/
-│
 ├── agent/
-│   ├── state/
-│   ├── policy/
-│   ├── nut/
-│   └── host/
-│
-├── wolctl/
 │   ├── cmd/
-│   └── magicpacket/
-│
+│   └── internal/
+│       ├── config/
+│       ├── health/
+│       ├── host/
+│       ├── ipc/
+│       ├── nut/
+│       ├── policy/
+│       └── state/
+├── wolctl/
+├── cockpit/
 ├── config/
-│   ├── config.yaml.example
-│   └── hosts.yaml.example
-│
+├── schemas/
+├── packaging/systemd/
 ├── scripts/
-│   ├── install.sh
-│   └── lib/
-│
 ├── docs/
-│   ├── INSTALLATION_REQUIREMENTS.md
-│   ├── RELATED_PROJECTS.md
-│   ├── NUT.md
-│   ├── SYNOLOGY.md
-│   └── SECURITY.md
-│
 ├── tests/
-│   ├── unit/
-│   ├── integration/
-│   └── simulation/
-│
-└── .github/
-    └── workflows/
+└── .github/workflows/
 ```
 
-## 29. Architectural Acceptance Criteria
+## 29. Architectural acceptance scenario
 
-The architecture is considered functional when the following scenario succeeds without a browser open:
+A functional v0.1 SHALL complete this without a browser open:
 
 ```text
-1. UPS reports utility failure.
-2. Short-outage grace timer expires.
-3. Running host state is recorded.
-4. Managed hosts shut down in configured order.
-5. Synology safely shuts down through NUT.
-6. Controller shuts down last if required.
-7. Utility power returns.
-8. Controller boots.
-9. Agent restores persisted outage state.
-10. Utility power remains stable.
-11. Network becomes available.
-12. UPS battery reaches at least 80%.
-13. Previously-running hosts are awakened in configured order.
-14. Previously-off hosts remain off.
-15. System returns to NORMAL.
+1. Controller and required network path are UPS-backed.
+2. Utility fails; NUT reports OB.
+3. Grace/trigger policy is evaluated.
+4. Pre-outage host state is durably recorded.
+5. SHUTDOWN_COMMITTED is persisted before the first destructive action.
+6. Managed hosts shut down in configured order; Synology uses NUT.
+7. Controller remains last and may shut down only at its late threshold.
+8. Utility returns and controller auto-boots if it had powered off.
+9. Agent enters BOOT_RECONCILE and loads persisted transaction/config state.
+10. Valid OL is observed continuously for the stability interval.
+11. Network/dependency readiness is proven.
+12. UPS battery reaches the recovery gate (80% by default).
+13. RECOVERY_STARTED is persisted before the first wake action.
+14. Previously eligible hosts are restored in configured order.
+15. Previously-off hosts remain off unless configured `always`.
+16. Per-host progress survives any reboot/power interruption.
+17. Successful completion returns the system to NORMAL/HEALTHY.
 ```
 
-Cockpit SHALL be able to inspect the entire process, but SHALL not be required for it to complete.
+Cockpit SHALL be able to inspect and manage this process but is never required for its safety-critical completion.
