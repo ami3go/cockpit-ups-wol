@@ -2,15 +2,15 @@
 
 ## Current phase
 
-**Phase:** requirements reconciled → implementation foundation
+**Phase:** safety-core implementation
 
-The P0 design blockers identified by `docs/READINESS_AUDIT.md` are being resolved before core code is considered stable.
+The P0 architecture/readiness blockers are resolved. Core safety libraries are now being implemented and continuously validated by CI.
 
 ## v0.1 — Safety core
 
 ### Foundation
 
-- [ ] repository/build skeleton
+- [x] repository/build skeleton
 - [x] implementation stack decision
 - [x] canonical architecture reconciliation
 - [x] canonical configuration schema
@@ -22,51 +22,53 @@ The P0 design blockers identified by `docs/READINESS_AUDIT.md` are being resolve
 
 ### Agent
 
-- [ ] Go module and command skeleton
-- [ ] configuration loader + schema/semantic validation
-- [ ] atomic state store with checksum + previous-generation fallback
-- [ ] normalized NUT adapter (`OL`/`OB`/`LB`/`FSD`/`UNKNOWN`)
-- [ ] canonical state machine
-- [ ] shutdown commit/recovery commit persistence
-- [ ] host snapshot and reconciliation
-- [ ] SSH/command/NUT host adapters
-- [ ] ordered pre-FSD shutdown planning
-- [ ] recovery gating and ordered restore
-- [ ] dry-run / armed / monitor / maintenance modes
-- [ ] Unix-socket IPC server
-- [ ] local CLI client
+- [x] Go module and command skeleton
+- [x] configuration loader + strict YAML/semantic validation
+- [x] atomic state store with checksum + previous-generation fallback
+- [x] normalized NUT adapter (`OL`/`OB`/`LB`/`FSD`/`UNKNOWN`)
+- [x] canonical state machine library
+- [x] shutdown commit/recovery commit persistence coordinator
+- [ ] host snapshot and full interrupted-action reconciliation
+- [ ] SSH/command/NUT host shutdown adapters
+- [x] ordered pre-FSD shutdown planning
+- [x] recovery gating and dependency-aware ordered restore
+- [ ] runtime enforcement of dry-run / armed / monitor / maintenance modes
+- [x] Unix-socket IPC server foundation
+- [x] local CLI client foundation
+- [ ] integrated long-running agent event loop
 
 ### Reliability
 
-- [ ] systemd unit for agent
-- [ ] systemd watchdog integration
-- [ ] health oneshot + timer
-- [ ] bounded repair/circuit breaker
-- [ ] config revision manager
-- [ ] runtime probation
-- [ ] automatic last-known-good rollback
-- [ ] interrupted-config recovery
-- [ ] `FAILED_SAFE` inhibition and acknowledgement path
+- [x] systemd unit for agent
+- [x] systemd watchdog support
+- [x] health oneshot + timer
+- [x] bounded repair/circuit breaker with durable counters
+- [x] config revision manager
+- [x] runtime probation
+- [x] automatic last-known-good rollback
+- [x] interrupted-config recovery
+- [x] health details over local IPC
+- [ ] `FAILED_SAFE` acknowledgement/reconciliation command path
 
 ### NUT / Synology
 
 - [ ] distro-aware NUT service discovery
-- [ ] local-server profile
-- [ ] remote-client profile
-- [ ] existing-NUT profile
-- [ ] Synology compatibility preset
-- [ ] primary/secondary validation
-- [ ] UPS output power-cycle capability classification
-- [ ] safe FSD integration through primary `upsmon`
+- [ ] fully integrated local-server runtime profile
+- [ ] fully integrated remote-client runtime profile
+- [ ] existing-NUT profile installer integration
+- [ ] Synology compatibility installer preset
+- [x] primary/master validation from `upsmon.conf`
+- [x] UPS output power-cycle capability represented in config
+- [x] safe FSD request through primary `upsmon`
 
 ### WoL
 
-- [ ] Go magic-packet package
-- [ ] `wolctl`
-- [ ] interface/broadcast selection
-- [ ] bounded retry
-- [ ] status verification
-- [ ] dependency-aware ordered recovery
+- [x] Go magic-packet package
+- [x] `wolctl`
+- [x] interface/broadcast selection
+- [x] bounded retry state
+- [ ] concrete host status verification adapters (TCP/ping/ARP)
+- [x] dependency-aware ordered recovery
 
 ### Installer
 
@@ -100,33 +102,35 @@ The P0 design blockers identified by `docs/READINESS_AUDIT.md` are being resolve
 
 ### Tests
 
-- [ ] unit tests
-- [ ] fake NUT integration harness
-- [ ] state-store fault injection
-- [ ] IPC authorization tests
-- [ ] config rollback tests
-- [ ] repeated interrupted-boot tests
-- [ ] power-bounce tests
-- [ ] recovery 80% gate tests
-- [ ] FSD primary/secondary integration tests
-- [ ] Synology acceptance test procedure
+- [x] Go unit-test suite running in CI
+- [x] fake-command NUT parser/FSD tests
+- [x] state corruption/current→previous fallback tests
+- [x] config rollback/probation/interrupted-validation tests
+- [x] recovery 80% gate and post-commit charge hysteresis tests
+- [x] basic power-bounce/recovery-interruption tests
+- [x] Unix-socket GetHealth integration test
+- [ ] IPC peer-credential/authorization tests
+- [ ] torn-write fault injection at every state-store rename/fsync point
+- [ ] repeated interrupted-boot integration tests
+- [ ] real NUT primary/secondary FSD integration tests
+- [x] Synology acceptance test procedure documented
 - [ ] hardware UPS acceptance on amd64
 - [ ] hardware UPS acceptance on arm64
-- [ ] riscv64 smoke test
+- [ ] riscv64 hardware/smoke acceptance
 
 ### Release
 
-- [ ] CI build/test workflow
-- [ ] multi-arch binaries
+- [x] CI test/vet/multi-arch build workflow
+- [ ] publish multi-arch binary artifacts
 - [ ] Cockpit bundle
-- [ ] SHA256SUMS
+- [ ] SHA256SUMS release artifact
 - [ ] release installer
-- [ ] upgrade/rollback test
-- [ ] README
+- [ ] upgrade/rollback release test
+- [x] README
 - [ ] LICENSE decision
-- [ ] SECURITY
-- [ ] THIRD_PARTY_NOTICES before copied source
-- [ ] CHANGELOG
+- [x] SECURITY
+- [x] THIRD_PARTY_NOTICES before copied source
+- [x] CHANGELOG
 
 ## v0.2 — Administration and adapters
 
