@@ -21,6 +21,11 @@ type Config struct {
 	ShutdownPriority int
 	WakeEnabled      bool
 	WakePriority     int
+	WakeMaxAttempts  int
+	WakeMAC          string
+	WakeInterface    string
+	WakeBroadcast    string
+	WakePort         int
 	RestorePolicy    RestorePolicy
 	DependsOn        []string
 }
