@@ -25,6 +25,18 @@ func NewCoordinator(engine *Engine, store StateWriter) *Coordinator {
 
 func (c *Coordinator) State() state.State { return c.engine.State() }
 
+// Write makes Coordinator itself a state writer. This is used by host/recovery
+// orchestration so every durable per-host update also refreshes the policy
+// engine's in-memory state; the two views can therefore never drift apart.
+func (c *Coordinator) Write(next state.State) (state.State, error) {
+	persisted, err := c.store.Write(next)
+	if err != nil {
+		return state.State{}, err
+	}
+	c.engine.st = persisted
+	return persisted, nil
+}
+
 func (c *Coordinator) Step(now time.Time, in Inputs) (Decision, error) {
 	before := c.engine.State()
 	decision, err := c.engine.Step(now, in)
@@ -36,7 +48,6 @@ func (c *Coordinator) Step(now time.Time, in Inputs) (Decision, error) {
 	}
 	persisted, err := c.store.Write(c.engine.State())
 	if err != nil {
-		// Keep in-memory state aligned with the last state we know was durable.
 		c.engine.st = before
 		return Decision{}, err
 	}
