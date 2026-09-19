@@ -15,7 +15,7 @@ nut:
     listen_ipv6: false
     allowed_clients: []
   synology_compatibility:
-    enabled: true
+    enabled: false
     username: monuser
     password: secret
   hosts_sync_seconds: 60
