@@ -1,0 +1,14 @@
+[Unit]
+Description=cockpit-ups-wol restricted NUT network policy
+Documentation=https://github.com/ami3go/cockpit-ups-wol
+Before=nut-server.service
+After=network-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/cockpit-ups-wol/firewall-apply start
+ExecStop=/usr/libexec/cockpit-ups-wol/firewall-apply stop
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
