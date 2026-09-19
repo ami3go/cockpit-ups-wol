@@ -26,6 +26,8 @@ jobs:
         run: go test ./...
       - name: Canonical YAML integration test
         run: go test -tags integrationyaml ./internal/config
+      - name: Generated NUT FSD/Synology integration test
+        run: go test -tags integrationnut ./internal/nut
       - name: Vet
         run: go vet ./...
       - name: Build amd64
