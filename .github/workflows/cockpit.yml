@@ -1,0 +1,31 @@
+name: Cockpit UI
+
+on:
+  push:
+    branches: [main]
+    paths: ['cockpit/**', 'agent/cmd/cockpit-ups-wolctl/**', 'agent/internal/report/**', 'agent/internal/config/status.go', '.github/workflows/cockpit.yml']
+  pull_request:
+    paths: ['cockpit/**', 'agent/cmd/cockpit-ups-wolctl/**', 'agent/internal/report/**', 'agent/internal/config/status.go', '.github/workflows/cockpit.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cockpit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+      - name: Install exact UI dependencies
+        run: npm install --ignore-scripts
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build Cockpit bundle
+        run: npm run build
+      - name: Verify bundle manifest
+        run: test -s dist/index.html && test -s dist/index.js && test -s dist/index.css && test -s dist/manifest.json

@@ -1,0 +1,57 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { Alert, Button, Card, CardBody, CardTitle, Label, Page, PageSection, Spinner, Tab, Tabs, TabTitleText } from '@patternfly/react-core';
+import { ConfigStatus, getConfigStatus, getHealth, getLogs, getPlan, HealthResponse, Plan } from './api';
+
+type View = 'Overview'|'UPS'|'Devices'|'Automation'|'Reliability'|'Settings'|'Logs';
+const views: View[] = ['Overview','UPS','Devices','Automation','Reliability','Settings','Logs'];
+
+export function App() {
+  const [view, setView] = useState<View>('Overview');
+  const [health, setHealth] = useState<HealthResponse>();
+  const [configStatus, setConfigStatus] = useState<ConfigStatus>();
+  const [plan, setPlan] = useState<Plan>();
+  const [logs, setLogs] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  const refresh = async () => {
+    setLoading(true); setError('');
+    try {
+      const [h, c, p] = await Promise.all([getHealth(), getConfigStatus(), getPlan()]);
+      setHealth(h); setConfigStatus(c); setPlan(p);
+      if (view === 'Logs') setLogs(await getLogs());
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { void refresh(); }, []);
+  useEffect(() => { if (view === 'Logs') void getLogs().then(setLogs).catch(e => setError(String(e))); }, [view]);
+  const healthState = health?.data?.state ?? (health?.ok ? 'UNKNOWN' : 'UNAVAILABLE');
+  const healthColor = healthState === 'HEALTHY' ? 'green' : healthState === 'FAILED_SAFE' ? 'red' : 'orange';
+  const shutdown = useMemo(() => plan?.shutdown ?? [], [plan]);
+  const restore = useMemo(() => plan?.restore ?? [], [plan]);
+
+  return <Page className="nut-page">
+    <PageSection>
+      <div className="nut-header"><div><h1>UPS Power Manager</h1><p>Safety-first NUT shutdown and recovery</p></div><div className="nut-header-actions"><Label color={healthColor}>{healthState}</Label><Button variant="secondary" onClick={() => void refresh()}>Refresh</Button></div></div>
+      {error && <Alert variant="danger" title="Unable to load management data">{error}</Alert>}
+      {plan?.mode !== 'armed' && <Alert variant="info" title={`Operating mode: ${plan?.mode ?? 'unknown'}`}>Destructive automatic actions are not armed.</Alert>}
+    </PageSection>
+    <PageSection padding={{ default: 'noPadding' }}><Tabs activeKey={view} onSelect={(_, key) => setView(key as View)}>{views.map(v => <Tab key={v} eventKey={v} title={<TabTitleText>{v}</TabTitleText>} />)}</Tabs></PageSection>
+    <PageSection>{loading && !plan ? <Spinner aria-label="Loading" /> : <ViewBody view={view} plan={plan} health={health} configStatus={configStatus} logs={logs} shutdown={shutdown} restore={restore} />}</PageSection>
+  </Page>;
+}
+
+function ViewBody({view,plan,health,configStatus,logs,shutdown,restore}:{view:View;plan?:Plan;health?:HealthResponse;configStatus?:ConfigStatus;logs:string;shutdown:Plan['shutdown'];restore:Plan['restore']}) {
+  if (!plan && view !== 'Logs') return <Alert variant="warning" title="No power plan available" />;
+  switch (view) {
+  case 'Overview': return <div className="nut-grid"><InfoCard title="Health" rows={[['State',health?.data?.state ?? 'Unknown'],['Last check',health?.data?.checked_at ?? 'Unknown']]}/><InfoCard title="UPS" rows={[['Target',plan!.ups.target],['Profile',plan!.ups.profile],['Power cycle',plan!.ups.power_cycle_capability]]}/><InfoCard title="Recovery" rows={[['Utility stable',`${plan!.recovery.utility_stable_seconds}s`],['Battery gate',plan!.recovery.battery_charge_min != null ? `${plan!.recovery.battery_charge_min}%` : 'fallback policy'],['Network wait',`${plan!.recovery.network_wait_seconds}s`]]}/><InfoCard title="Configuration" rows={[['Active',configStatus?.active || 'Unknown'],['Last known good',configStatus?.last_known_good || 'Unknown']]}/></div>;
+  case 'UPS': return <div className="nut-grid"><InfoCard title="NUT connection" rows={[['Target',plan!.ups.target],['Profile',plan!.ups.profile],['Synology compatibility',plan!.ups.synology_compatibility?'Enabled':'Disabled'],['Power cycle',plan!.ups.power_cycle_capability]]}/><InfoCard title="Outage triggers" rows={[['Grace',`${plan!.outage.grace_period_seconds}s`],['Critical charge',plan!.outage.critical_battery_percent != null?`${plan!.outage.critical_battery_percent}%`:'Not configured'],['Critical runtime',plan!.outage.critical_runtime_seconds != null?`${plan!.outage.critical_runtime_seconds}s`:'Not configured']]}/></div>;
+  case 'Devices': return <div className="nut-grid">{shutdown.map(h => <InfoCard key={h.id} title={h.name} rows={[['Shutdown',`${h.method} / priority ${h.priority}`],['Restore',restore.find(r=>r.id===h.id)?.restore_policy ?? 'unknown'],['Depends on',(h.depends_on??[]).join(', ')||'None']]}/>)}</div>;
+  case 'Automation': return <><Card><CardTitle>Dry-run power plan</CardTitle><CardBody><h3>Shutdown order</h3><ol>{shutdown.map(h => <li key={h.id}>{h.name} — {h.method}, priority {h.priority}</li>)}</ol><h3>Recovery order</h3><ol>{restore.filter(h=>h.wake_enabled).map(h => <li key={h.id}>{h.name} — {h.restore_policy}, wake priority {h.wake_priority}</li>)}</ol></CardBody></Card><Alert variant="info" title="Actions disabled in this UI slice">This dashboard is read-only. It cannot arm automation, shut down hosts, wake hosts, or write configuration.</Alert></>;
+  case 'Reliability': return <><div className="nut-grid"><InfoCard title="Revisions" rows={[['Active',configStatus?.active||'Unknown'],['Last known good',configStatus?.last_known_good||'Unknown'],['Previous known good',configStatus?.previous_known_good||'None']]}/><InfoCard title="Health checks" rows={(health?.data?.results??[]).map(r=>[r.name,r.ok?'PASS':`FAIL: ${r.message??''}`])}/></div>{health?.data?.circuit?.failed_safe_reason && <Alert variant="danger" title="FAILED_SAFE">{health.data.circuit.failed_safe_reason}</Alert>}</>;
+  case 'Settings': return <><InfoCard title="Read-only configuration summary" rows={[['Mode',plan!.mode],['NUT profile',plan!.ups.profile],['Recovery enabled',plan!.recovery.enabled?'Yes':'No'],['Network dependencies',String(plan!.network_dependencies.length)]]}/><Alert variant="info" title="Transactional editor not enabled yet">Configuration changes will be added only through the agent transaction/rollback API.</Alert></>;
+  case 'Logs': return <Card><CardTitle>Recent agent journal</CardTitle><CardBody><pre className="nut-logs">{logs || 'No log data loaded.'}</pre></CardBody></Card>;
+  }
+}
+
+function InfoCard({title,rows}:{title:string;rows:Array<[string,string]>}) { return <Card><CardTitle>{title}</CardTitle><CardBody><dl className="nut-kv">{rows.map(([k,v]) => <React.Fragment key={k}><dt>{k}</dt><dd>{v}</dd></React.Fragment>)}</dl></CardBody></Card>; }
