@@ -42,7 +42,8 @@ render_restricted_nft() {
         printf '    ip saddr %s tcp dport 3493 accept\n' "$cidr"
       fi
     done
-    echo '    tcp dport 3493 drop'
+    ((NUT_LISTEN_IPV4)) && echo '    meta nfproto ipv4 tcp dport 3493 drop'
+    ((NUT_LISTEN_IPV6)) && echo '    meta nfproto ipv6 tcp dport 3493 drop'
     echo '  }'
     echo '}'
   } >"$out"
@@ -69,6 +70,7 @@ EOF
 }
 
 network_configure_security() {
+  NETWORK_FIREWALL_ACTION=unchanged
   validate_network_inputs
   [[ "$PROFILE" == local-server ]] || return 0
   if [[ "${PROJECT_CONFIG_CREATED:-0}" -ne 1 ]]; then
@@ -77,15 +79,15 @@ network_configure_security() {
   fi
   if [[ "$NETWORK_MODE" == trusted-lan ]]; then
     rm -f "$ETC_DIR/firewall.nft" "$LIBEXEC_DIR/firewall-apply"
+    NETWORK_FIREWALL_ACTION=disable
     log "NUT network mode trusted-lan; no project firewall restriction installed"
     return 0
   fi
   command -v nft >/dev/null 2>&1 || die "restricted mode requires nftables/nft"
   render_restricted_nft "$ETC_DIR/firewall.nft"
   chmod 0600 "$ETC_DIR/firewall.nft"
-  # Validate syntax before a systemd unit can activate it. This must not mutate
-  # the host ruleset.
   nft -c -f "$ETC_DIR/firewall.nft" || die "generated restricted NUT nftables policy failed validation"
   install_firewall_apply_helper
+  NETWORK_FIREWALL_ACTION=enable
   log "prepared additive project-owned restricted NUT firewall policy"
 }
