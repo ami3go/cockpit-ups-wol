@@ -103,7 +103,7 @@ jobs:
       - name: Build production Cockpit bundle
         working-directory: cockpit
         run: |
-          npm install --ignore-scripts
+          npm ci --ignore-scripts --no-audit --no-fund
           npm run typecheck
           npm run build
       - name: Real NUT + Cockpit + systemd install/rollback acceptance

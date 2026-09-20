@@ -26,7 +26,7 @@ jobs:
       - name: Build Cockpit UI
         working-directory: cockpit
         run: |
-          npm install --ignore-scripts
+          npm ci --ignore-scripts --no-audit --no-fund
           npm run typecheck
           npm run build
       - name: Build reproducible multi-arch appliance bundles

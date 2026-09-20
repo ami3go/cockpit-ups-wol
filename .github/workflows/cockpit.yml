@@ -22,7 +22,7 @@ jobs:
         with:
           node-version: '24.x'
       - name: Install exact UI dependencies
-        run: npm install --ignore-scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Typecheck
         run: npm run typecheck
       - name: Build Cockpit bundle
