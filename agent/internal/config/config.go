@@ -152,116 +152,339 @@ func Parse(data []byte) (Config, error) {
 
 func Validate(cfg Config) error {
 	var problems []string
-	if cfg.ConfigVersion != 1 { problems = append(problems, "config_version must be 1") }
-	if !oneOf(cfg.Mode, "monitor", "dry-run", "armed", "maintenance") { problems = append(problems, "invalid mode") }
-	if !oneOf(cfg.NUT.Profile, "local-server", "remote-client", "existing") { problems = append(problems, "invalid nut.profile") }
-	if strings.TrimSpace(cfg.NUT.UPSName) == "" { problems = append(problems, "nut.ups_name is required") }
-	if strings.TrimSpace(cfg.NUT.Host) == "" { problems = append(problems, "nut.host is required") }
-	if cfg.NUT.Port < 1 || cfg.NUT.Port > 65535 { problems = append(problems, "nut.port must be 1..65535") }
-	if !oneOf(cfg.NUT.PowerCycleCapability, "POWER_CYCLE_VERIFIED", "POWER_CYCLE_UNVERIFIED", "MONITOR_ONLY") { problems = append(problems, "invalid nut.power_cycle_capability") }
-	if !oneOf(cfg.NUT.Network.Mode, "trusted-lan", "restricted") { problems = append(problems, "invalid nut.network.mode") }
-	if cfg.NUT.Network.Mode == "restricted" && len(cfg.NUT.Network.AllowedClients) == 0 { problems = append(problems, "restricted NUT mode requires allowed_clients") }
-	if !cfg.Controller.RequireUPSBackedPower { problems = append(problems, "controller.require_ups_backed_power must remain true") }
-	if !cfg.Controller.RequireAutoPowerOn { problems = append(problems, "controller.require_auto_power_on must remain true") }
-	if cfg.Outage.GracePeriodSeconds < 0 { problems = append(problems, "outage.grace_period_seconds must be >= 0") }
+	if cfg.ConfigVersion != 1 {
+		problems = append(problems, "config_version must be 1")
+	}
+	if !oneOf(cfg.Mode, "monitor", "dry-run", "armed", "maintenance") {
+		problems = append(problems, "invalid mode")
+	}
+	if !oneOf(cfg.NUT.Profile, "local-server", "remote-client", "existing") {
+		problems = append(problems, "invalid nut.profile")
+	}
+	if strings.TrimSpace(cfg.NUT.UPSName) == "" {
+		problems = append(problems, "nut.ups_name is required")
+	}
+	if strings.TrimSpace(cfg.NUT.Host) == "" {
+		problems = append(problems, "nut.host is required")
+	}
+	if cfg.NUT.Port < 1 || cfg.NUT.Port > 65535 {
+		problems = append(problems, "nut.port must be 1..65535")
+	}
+	if !oneOf(cfg.NUT.PowerCycleCapability, "POWER_CYCLE_VERIFIED", "POWER_CYCLE_UNVERIFIED", "MONITOR_ONLY") {
+		problems = append(problems, "invalid nut.power_cycle_capability")
+	}
+	if !oneOf(cfg.NUT.Network.Mode, "trusted-lan", "restricted") {
+		problems = append(problems, "invalid nut.network.mode")
+	}
+	if cfg.NUT.Network.Mode == "restricted" && len(cfg.NUT.Network.AllowedClients) == 0 {
+		problems = append(problems, "restricted NUT mode requires allowed_clients")
+	}
+	if cfg.NUT.HostSyncSeconds < 1 {
+		problems = append(problems, "nut.hosts_sync_seconds must be > 0")
+	}
+	if cfg.NUT.FinalDelaySeconds < 1 {
+		problems = append(problems, "nut.final_delay_seconds must be > 0")
+	}
+	if !cfg.Controller.RequireUPSBackedPower {
+		problems = append(problems, "controller.require_ups_backed_power must remain true")
+	}
+	if !cfg.Controller.RequireAutoPowerOn {
+		problems = append(problems, "controller.require_auto_power_on must remain true")
+	}
+	if cfg.Outage.GracePeriodSeconds < 0 {
+		problems = append(problems, "outage.grace_period_seconds must be >= 0")
+	}
+	if cfg.Outage.CommunicationLossGraceSeconds < 0 {
+		problems = append(problems, "outage.communication_loss_grace_seconds must be >= 0")
+	}
 	validateOptionalPercent(&problems, "outage.critical_battery_percent", cfg.Outage.CriticalBatteryPercent)
 	validateOptionalPositive(&problems, "outage.critical_runtime_seconds", cfg.Outage.CriticalRuntimeSeconds)
 	validateOptionalPositive(&problems, "outage.max_on_battery_seconds", cfg.Outage.MaxOnBatterySeconds)
 	if cfg.Recovery.Enabled {
-		if cfg.Recovery.UtilityStableSeconds < 1 { problems = append(problems, "recovery.utility_stable_seconds must be > 0") }
-		if cfg.Recovery.NetworkWaitSeconds < 0 { problems = append(problems, "recovery.network_wait_seconds must be >= 0") }
+		if cfg.Recovery.UtilityStableSeconds < 1 {
+			problems = append(problems, "recovery.utility_stable_seconds must be > 0")
+		}
+		if cfg.Recovery.NetworkWaitSeconds < 0 {
+			problems = append(problems, "recovery.network_wait_seconds must be >= 0")
+		}
 		validateOptionalPercent(&problems, "recovery.battery_charge_min", cfg.Recovery.BatteryChargeMin)
 		validateOptionalPositive(&problems, "recovery.runtime_min_seconds", cfg.Recovery.RuntimeMinSeconds)
 		validateOptionalPositive(&problems, "recovery.recharge_time_seconds", cfg.Recovery.RechargeTimeSeconds)
-		if cfg.Recovery.BatteryChargeMin == nil && cfg.Recovery.RuntimeMinSeconds == nil && cfg.Recovery.RechargeTimeSeconds == nil { problems = append(problems, "recovery requires charge, runtime, recharge-time, or manual policy") }
+		if cfg.Recovery.BatteryChargeMin == nil && cfg.Recovery.RuntimeMinSeconds == nil && cfg.Recovery.RechargeTimeSeconds == nil {
+			problems = append(problems, "recovery requires charge, runtime, recharge-time, or manual policy")
+		}
 	}
-	if !cfg.Health.Enabled { problems = append(problems, "health.enabled must remain true in v0.1") }
-	if cfg.Health.IntervalSeconds < 10 { problems = append(problems, "health.interval_seconds must be >= 10") }
-	if cfg.Health.ProbationSeconds < 10 { problems = append(problems, "health.probation_seconds must be >= 10") }
-	if cfg.Health.MaxRepairAttempts < 1 { problems = append(problems, "health.max_repair_attempts must be >= 1") }
+	if !cfg.Health.Enabled {
+		problems = append(problems, "health.enabled must remain true in v0.1")
+	}
+	if cfg.Health.IntervalSeconds < 10 {
+		problems = append(problems, "health.interval_seconds must be >= 10")
+	}
+	if cfg.Health.ProbationSeconds < 10 {
+		problems = append(problems, "health.probation_seconds must be >= 10")
+	}
+	if cfg.Health.MaxRepairAttempts < 1 {
+		problems = append(problems, "health.max_repair_attempts must be >= 1")
+	}
+
 	ids := map[string]string{}
 	for i, d := range cfg.Dependencies {
 		path := fmt.Sprintf("network_dependencies[%d]", i)
 		validateID(&problems, ids, d.ID, path)
-		if !oneOf(d.Startup, "auto-power", "wait-only", "wol") { problems = append(problems, path+".startup invalid") }
+		if !oneOf(d.Startup, "auto-power", "wait-only", "wol") {
+			problems = append(problems, path+".startup invalid")
+		}
 		validateStatus(&problems, path+".status", d.Status)
 		validateWake(&problems, path+".wake", d.Wake)
-		if d.Status.Method != "none" && nilOrEmpty(d.Address) { problems = append(problems, path+".address is required when status checks are enabled") }
-		if d.Startup == "wol" && !d.Wake.Enabled { problems = append(problems, path+" startup=wol requires wake.enabled") }
+		if d.Status.Method != "none" && nilOrEmpty(d.Address) {
+			problems = append(problems, path+".address is required when status checks are enabled")
+		}
+		if d.Startup == "wol" && !d.Wake.Enabled {
+			problems = append(problems, path+" startup=wol requires wake.enabled")
+		}
 	}
 	for i, h := range cfg.Hosts {
 		path := fmt.Sprintf("hosts[%d]", i)
 		validateID(&problems, ids, h.ID, path)
-		if strings.TrimSpace(h.Name) == "" { problems = append(problems, path+".name is required") }
-		if !oneOf(h.RestorePolicy, "previous-state", "always", "never") { problems = append(problems, path+".restore_policy invalid") }
+		if strings.TrimSpace(h.Name) == "" {
+			problems = append(problems, path+".name is required")
+		}
+		if !oneOf(h.RestorePolicy, "previous-state", "always", "never") {
+			problems = append(problems, path+".restore_policy invalid")
+		}
 		validateStatus(&problems, path+".status", h.Status)
 		validateWake(&problems, path+".wake", h.Wake)
-		if !oneOf(h.Shutdown.Method, "nut", "ssh", "command", "none") { problems = append(problems, path+".shutdown.method invalid") }
-		if h.Shutdown.TimeoutSeconds < 1 { problems = append(problems, path+".shutdown.timeout_seconds must be > 0") }
-		if h.Shutdown.Method == "ssh" && (nilOrEmpty(h.Shutdown.SSHUser) || nilOrEmpty(h.Shutdown.SSHKeyFile)) { problems = append(problems, path+" ssh shutdown requires ssh_user and ssh_key_file") }
-		if h.Shutdown.Method == "command" && nilOrEmpty(h.Shutdown.CommandID) { problems = append(problems, path+" command shutdown requires command_id") }
+		if !oneOf(h.Shutdown.Method, "nut", "ssh", "command", "none") {
+			problems = append(problems, path+".shutdown.method invalid")
+		}
+		if h.Shutdown.TimeoutSeconds < 1 {
+			problems = append(problems, path+".shutdown.timeout_seconds must be > 0")
+		}
+		if h.Shutdown.Method == "ssh" && (nilOrEmpty(h.Shutdown.SSHUser) || nilOrEmpty(h.Shutdown.SSHKeyFile)) {
+			problems = append(problems, path+" ssh shutdown requires ssh_user and ssh_key_file")
+		}
+		if h.Shutdown.Method == "command" && nilOrEmpty(h.Shutdown.CommandID) {
+			problems = append(problems, path+" command shutdown requires command_id")
+		}
 	}
 	for i, h := range cfg.Hosts {
 		for _, dep := range h.DependsOn {
-			if _, ok := ids[dep]; !ok { problems = append(problems, fmt.Sprintf("hosts[%d].depends_on references unknown id %q", i, dep)) }
-			if dep == h.ID { problems = append(problems, fmt.Sprintf("hosts[%d] cannot depend on itself", i)) }
+			if _, ok := ids[dep]; !ok {
+				problems = append(problems, fmt.Sprintf("hosts[%d].depends_on references unknown id %q", i, dep))
+			}
+			if dep == h.ID {
+				problems = append(problems, fmt.Sprintf("hosts[%d] cannot depend on itself", i))
+			}
 		}
 	}
-	if len(problems) > 0 { return errors.New(strings.Join(problems, "; ")) }
+	validateHostDependencyCycles(&problems, cfg.Hosts)
+
+	if len(problems) > 0 {
+		return errors.New(strings.Join(problems, "; "))
+	}
 	return nil
 }
 
 func applyDefaults(cfg *Config) {
-	if cfg.NUT.Host == "" { cfg.NUT.Host = "localhost" }
-	if cfg.NUT.Port == 0 { cfg.NUT.Port = 3493 }
-	if cfg.NUT.PowerCycleCapability == "" { cfg.NUT.PowerCycleCapability = "POWER_CYCLE_UNVERIFIED" }
-	if cfg.NUT.Network.Mode == "" { cfg.NUT.Network.Mode = "trusted-lan" }
-	if cfg.NUT.HostSyncSeconds == 0 { cfg.NUT.HostSyncSeconds = 60 }
-	if cfg.NUT.FinalDelaySeconds == 0 { cfg.NUT.FinalDelaySeconds = 15 }
+	if cfg.NUT.Host == "" {
+		cfg.NUT.Host = "localhost"
+	}
+	if cfg.NUT.Port == 0 {
+		cfg.NUT.Port = 3493
+	}
+	if cfg.NUT.PowerCycleCapability == "" {
+		cfg.NUT.PowerCycleCapability = "POWER_CYCLE_UNVERIFIED"
+	}
+	if cfg.NUT.Network.Mode == "" {
+		cfg.NUT.Network.Mode = "trusted-lan"
+	}
+	if cfg.NUT.HostSyncSeconds == 0 {
+		cfg.NUT.HostSyncSeconds = 60
+	}
+	if cfg.NUT.FinalDelaySeconds == 0 {
+		cfg.NUT.FinalDelaySeconds = 15
+	}
 	if cfg.NUT.Synology.Enabled {
-		if cfg.NUT.Synology.Username == "" { cfg.NUT.Synology.Username = "monuser" }
-		if cfg.NUT.Synology.Password == "" { cfg.NUT.Synology.Password = "secret" }
+		if cfg.NUT.Synology.Username == "" {
+			cfg.NUT.Synology.Username = "monuser"
+		}
+		if cfg.NUT.Synology.Password == "" {
+			cfg.NUT.Synology.Password = "secret"
+		}
 	}
-	if cfg.Health.IntervalSeconds == 0 { cfg.Health.IntervalSeconds = 60 }
-	if cfg.Health.ProbationSeconds == 0 { cfg.Health.ProbationSeconds = 60 }
-	if cfg.Health.MaxRepairAttempts == 0 { cfg.Health.MaxRepairAttempts = 5 }
-	for i := range cfg.Dependencies { applyStatusDefaults(&cfg.Dependencies[i].Status); applyWakeDefaults(&cfg.Dependencies[i].Wake) }
+	if cfg.Health.IntervalSeconds == 0 {
+		cfg.Health.IntervalSeconds = 60
+	}
+	if cfg.Health.ProbationSeconds == 0 {
+		cfg.Health.ProbationSeconds = 60
+	}
+	if cfg.Health.MaxRepairAttempts == 0 {
+		cfg.Health.MaxRepairAttempts = 5
+	}
+	for i := range cfg.Dependencies {
+		applyStatusDefaults(&cfg.Dependencies[i].Status)
+		applyWakeDefaults(&cfg.Dependencies[i].Wake)
+	}
 	for i := range cfg.Hosts {
-		applyStatusDefaults(&cfg.Hosts[i].Status); applyWakeDefaults(&cfg.Hosts[i].Wake)
-		if cfg.Hosts[i].Shutdown.TimeoutSeconds == 0 { cfg.Hosts[i].Shutdown.TimeoutSeconds = 120 }
+		applyStatusDefaults(&cfg.Hosts[i].Status)
+		applyWakeDefaults(&cfg.Hosts[i].Wake)
+		if cfg.Hosts[i].Shutdown.TimeoutSeconds == 0 {
+			cfg.Hosts[i].Shutdown.TimeoutSeconds = 120
+		}
 	}
 }
+
 func applyStatusDefaults(s *StatusConfig) {
-	if s.TimeoutMS == 0 { s.TimeoutMS = 1000 }
-	if s.SuccessConsecutive == 0 { s.SuccessConsecutive = 3 }
-	if s.ProbeIntervalSeconds == 0 { s.ProbeIntervalSeconds = 5 }
+	if s.TimeoutMS == 0 {
+		s.TimeoutMS = 1000
+	}
+	if s.SuccessConsecutive == 0 {
+		s.SuccessConsecutive = 3
+	}
+	if s.ProbeIntervalSeconds == 0 {
+		s.ProbeIntervalSeconds = 5
+	}
 }
+
 func applyWakeDefaults(w *WakeConfig) {
-	if !w.Enabled { return }
-	if w.Port == 0 { w.Port = 9 }
-	if w.MaxAttempts == 0 { w.MaxAttempts = 5 }
-	if w.DelayAfterPreviousSeconds == 0 { w.DelayAfterPreviousSeconds = 30 }
+	if !w.Enabled {
+		return
+	}
+	if w.Port == 0 {
+		w.Port = 9
+	}
+	if w.MaxAttempts == 0 {
+		w.MaxAttempts = 5
+	}
+	if w.DelayAfterPreviousSeconds == 0 {
+		w.DelayAfterPreviousSeconds = 30
+	}
 }
+
 func validateID(problems *[]string, ids map[string]string, id, path string) {
-	if strings.TrimSpace(id) == "" { *problems = append(*problems, path+".id is required"); return }
-	if prev, ok := ids[id]; ok { *problems = append(*problems, fmt.Sprintf("duplicate id %q at %s and %s", id, prev, path)); return }
+	if strings.TrimSpace(id) == "" {
+		*problems = append(*problems, path+".id is required")
+		return
+	}
+	if prev, ok := ids[id]; ok {
+		*problems = append(*problems, fmt.Sprintf("duplicate id %q at %s and %s", id, prev, path))
+		return
+	}
 	ids[id] = path
 }
+
 func validateStatus(problems *[]string, path string, s StatusConfig) {
-	if !oneOf(s.Method, "auto", "ping", "tcp", "arp", "none") { *problems = append(*problems, path+".method invalid") }
-	if s.Method == "tcp" && (s.Port == nil || *s.Port < 1 || *s.Port > 65535) { *problems = append(*problems, path+" TCP method requires valid port") }
-	if s.TimeoutMS < 100 { *problems = append(*problems, path+".timeout_ms must be >= 100") }
-	if s.SuccessConsecutive < 1 { *problems = append(*problems, path+".success_consecutive must be >= 1") }
-	if s.ProbeIntervalSeconds < 1 { *problems = append(*problems, path+".probe_interval_seconds must be >= 1") }
-}
-func validateWake(problems *[]string, path string, w WakeConfig) {
-	if w.Enabled {
-		if w.Port < 1 || w.Port > 65535 { *problems = append(*problems, path+".port must be 1..65535") }
-		if w.MaxAttempts < 1 { *problems = append(*problems, path+".max_attempts must be >= 1") }
-		if nilOrEmpty(w.MAC) { *problems = append(*problems, path+".mac required when enabled") } else if mac, err := net.ParseMAC(*w.MAC); err != nil || len(mac) != 6 { *problems = append(*problems, path+".mac invalid") }
+	if !oneOf(s.Method, "auto", "ping", "tcp", "arp", "none") {
+		*problems = append(*problems, path+".method invalid")
+	}
+	if s.Method == "tcp" && (s.Port == nil || *s.Port < 1 || *s.Port > 65535) {
+		*problems = append(*problems, path+" TCP method requires valid port")
+	}
+	if s.TimeoutMS < 100 {
+		*problems = append(*problems, path+".timeout_ms must be >= 100")
+	}
+	if s.SuccessConsecutive < 1 {
+		*problems = append(*problems, path+".success_consecutive must be >= 1")
+	}
+	if s.ProbeIntervalSeconds < 1 {
+		*problems = append(*problems, path+".probe_interval_seconds must be >= 1")
 	}
 }
-func validateOptionalPercent(problems *[]string, path string, v *int) { if v != nil && (*v < 1 || *v > 100) { *problems = append(*problems, path+" must be 1..100") } }
-func validateOptionalPositive(problems *[]string, path string, v *int) { if v != nil && *v < 1 { *problems = append(*problems, path+" must be > 0") } }
-func nilOrEmpty(v *string) bool { return v == nil || strings.TrimSpace(*v) == "" }
-func oneOf(v string, allowed ...string) bool { for _, a := range allowed { if v == a { return true } }; return false }
+
+func validateWake(problems *[]string, path string, w WakeConfig) {
+	if w.DelayAfterPreviousSeconds < 0 {
+		*problems = append(*problems, path+".delay_after_previous_seconds must be >= 0")
+	}
+	if w.Enabled {
+		if w.Port < 1 || w.Port > 65535 {
+			*problems = append(*problems, path+".port must be 1..65535")
+		}
+		if w.MaxAttempts < 1 {
+			*problems = append(*problems, path+".max_attempts must be >= 1")
+		}
+		if nilOrEmpty(w.MAC) {
+			*problems = append(*problems, path+".mac required when enabled")
+		} else if mac, err := net.ParseMAC(*w.MAC); err != nil || len(mac) != 6 {
+			*problems = append(*problems, path+".mac invalid")
+		}
+	}
+}
+
+func validateHostDependencyCycles(problems *[]string, hosts []HostConfig) {
+	graph := make(map[string][]string, len(hosts))
+	for _, h := range hosts {
+		graph[h.ID] = append([]string(nil), h.DependsOn...)
+	}
+
+	const (
+		unvisited = iota
+		visiting
+		visited
+	)
+	marks := make(map[string]int, len(graph))
+	stack := make([]string, 0, len(graph))
+
+	var visit func(string) bool
+	visit = func(id string) bool {
+		switch marks[id] {
+		case visiting:
+			start := 0
+			for i, v := range stack {
+				if v == id {
+					start = i
+					break
+				}
+			}
+			cycle := append(append([]string(nil), stack[start:]...), id)
+			*problems = append(*problems, "recovery dependency cycle detected: "+strings.Join(cycle, " -> "))
+			return false
+		case visited:
+			return true
+		}
+
+		marks[id] = visiting
+		stack = append(stack, id)
+		for _, dep := range graph[id] {
+			if _, managedHost := graph[dep]; !managedHost {
+				continue
+			}
+			if !visit(dep) {
+				return false
+			}
+		}
+		stack = stack[:len(stack)-1]
+		marks[id] = visited
+		return true
+	}
+
+	for id := range graph {
+		if marks[id] == unvisited && !visit(id) {
+			return
+		}
+	}
+}
+
+func validateOptionalPercent(problems *[]string, path string, v *int) {
+	if v != nil && (*v < 1 || *v > 100) {
+		*problems = append(*problems, path+" must be 1..100")
+	}
+}
+
+func validateOptionalPositive(problems *[]string, path string, v *int) {
+	if v != nil && *v < 1 {
+		*problems = append(*problems, path+" must be > 0")
+	}
+}
+
+func nilOrEmpty(v *string) bool {
+	return v == nil || strings.TrimSpace(*v) == ""
+}
+
+func oneOf(v string, allowed ...string) bool {
+	for _, a := range allowed {
+		if v == a {
+			return true
+		}
+	}
+	return false
+}
