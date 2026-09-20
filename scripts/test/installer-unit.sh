@@ -72,6 +72,11 @@ assert_contains "$cfg" '    mode: restricted'
 assert_contains "$cfg" '    listen_ipv4: true'
 assert_contains "$cfg" '    listen_ipv6: true'
 assert_contains "$cfg" '    allowed_clients: [192.168.10.0/24, fd00:1234::/64]'
+assert_contains "$cfg" 'network_dependencies: []'
+assert_contains "$cfg" 'hosts: []'
+if grep -Eq '192\.168\.1\.(2|20|30)|AA:BB:CC:DD:EE:FF|11:22:33:44:55:66' <<<"$cfg"; then
+  fail 'sample inventory leaked into live generated config'
+fi
 
 nutdir="$tmp/nut"; UPS_NAME=labups
 COCKPIT_UPS_WOL_NUT_ETC_DIR="$nutdir" nut_write_clean_local_server secret 0 "$UPS_DRIVER" "$UPS_PORT"
