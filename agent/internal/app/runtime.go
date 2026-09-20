@@ -21,16 +21,17 @@ type NUTQuerier interface {
 // Options contains runtime paths and injectable platform hooks. The hooks make
 // startup and watchdog behavior testable without a running systemd instance.
 type Options struct {
-	SocketPath      string
-	HealthStatePath string
-	HealthInterval  time.Duration
-	PowerInterval   time.Duration
-	StateDir        string
-	UPSMonConfPath  string
-	NUT             NUTQuerier
-	Ready           func() error
-	Stopping        func() error
-	StartWatchdog   func(context.Context) (<-chan error, error)
+	SocketPath       string
+	HealthStatePath  string
+	HealthInterval   time.Duration
+	PowerInterval    time.Duration
+	StateDir         string
+	ConfigHistoryDir string
+	UPSMonConfPath   string
+	NUT              NUTQuerier
+	Ready            func() error
+	Stopping         func() error
+	StartWatchdog    func(context.Context) (<-chan error, error)
 }
 
 func (o *Options) defaults() {
@@ -42,6 +43,9 @@ func (o *Options) defaults() {
 	}
 	if o.StateDir == "" {
 		o.StateDir = "/var/lib/cockpit-ups-wol/state"
+	}
+	if o.ConfigHistoryDir == "" {
+		o.ConfigHistoryDir = "/var/lib/cockpit-ups-wol/config-history"
 	}
 	if o.UPSMonConfPath == "" {
 		o.UPSMonConfPath = "/etc/nut/upsmon.conf"
@@ -63,8 +67,19 @@ func (o *Options) defaults() {
 	}
 }
 
-// LoadAndRun parses the canonical YAML configuration and starts the runtime.
+// LoadAndRun reconciles any interrupted configuration transaction before it
+// parses the canonical YAML and starts the runtime. A candidate copied into the
+// active path but not promoted to known-good must never execute after reboot.
 func LoadAndRun(ctx context.Context, configPath string, opts Options) error {
+	opts.defaults()
+	manager := &config.Manager{
+		HistoryDir:       opts.ConfigHistoryDir,
+		ActiveConfigPath: configPath,
+	}
+	if err := manager.RecoverForStartup(ctx, nil); err != nil {
+		return fmt.Errorf("recover configuration: %w", err)
+	}
+
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return fmt.Errorf("read config: %w", err)
@@ -97,7 +112,7 @@ func runPassive(ctx context.Context, cfg config.Config, opts Options) error {
 
 	target := nut.Target(cfg.NUT.UPSName, cfg.NUT.Host, cfg.NUT.Port)
 	supervisor := &health.Supervisor{
-		Checks: []health.Check{nutHealthCheck{client: opts.NUT, target: target}},
+		Checks:            []health.Check{nutHealthCheck{client: opts.NUT, target: target}},
 		StatePath:         opts.HealthStatePath,
 		MaxRepairAttempts: cfg.Health.MaxRepairAttempts,
 	}
