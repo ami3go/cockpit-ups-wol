@@ -70,7 +70,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Bash syntax
-        run: bash -n install.sh scripts/install/common.sh scripts/install/nut.sh scripts/install/discovery.sh scripts/install/network.sh scripts/install/configuration.sh scripts/install/tui.sh scripts/install/validate.sh scripts/install/cockpit.sh scripts/install/transaction.sh scripts/install/distros/*.sh scripts/test/installer-unit.sh scripts/test/install-e2e.sh scripts/test/hardware-preflight.sh
+        run: bash -n install.sh scripts/install/common.sh scripts/install/nut.sh scripts/install/discovery.sh scripts/install/network.sh scripts/install/configuration.sh scripts/install/tui.sh scripts/install/validate.sh scripts/install/cockpit.sh scripts/install/transaction.sh scripts/install/recover-interrupted-install.sh scripts/install/distros/*.sh scripts/test/installer-unit.sh scripts/test/install-e2e.sh scripts/test/hardware-preflight.sh
       - name: Installer backend unit tests
         run: ./scripts/test/installer-unit.sh
       - name: Installer self-check
