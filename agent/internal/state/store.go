@@ -102,14 +102,25 @@ func (s *Store) Write(next State) (State, error) {
 		return State{}, fmt.Errorf("close temp state: %w", err)
 	}
 
-	if _, err := os.Stat(s.currentPath()); err == nil {
-		if err := os.Remove(s.previousPath()); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return State{}, fmt.Errorf("remove old previous state: %w", err)
-		}
+	// Only rotate a checksum- and semantics-valid current generation. If the
+	// current file is corrupt and Load() fell back to previous.json, preserving
+	// previous.json is more important than retaining the corrupt current file.
+	// This guarantees that a valid fallback generation is not destroyed before
+	// the new current generation is atomically installed.
+	if _, err := readAndValidate(s.currentPath()); err == nil {
+		// On Linux/POSIX, rename atomically replaces an existing destination.
+		// This avoids an explicit unlink window where no fallback exists.
 		if err := os.Rename(s.currentPath(), s.previousPath()); err != nil {
 			return State{}, fmt.Errorf("rotate current state: %w", err)
 		}
+		// Make the valid fallback rename durable before touching current.json.
+		if err := syncDir(s.dir); err != nil {
+			return State{}, fmt.Errorf("fsync rotated state dir: %w", err)
+		}
 	}
+
+	// Rename atomically replaces a corrupt current.json if one exists. When the
+	// old current was invalid, previous.json has intentionally been left intact.
 	if err := os.Rename(tmpName, s.currentPath()); err != nil {
 		return State{}, fmt.Errorf("activate current state: %w", err)
 	}
