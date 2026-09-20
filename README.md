@@ -161,7 +161,7 @@ Key design and operating documents include:
 - `docs/STATE_MODEL.md`
 - `docs/NUT_SHUTDOWN_MODEL.md`
 - `docs/POWER_POLICY.md`
-- `docs/IPC_API.md`
+- `docs/IPC.md`
 - `docs/DEPLOYMENT.md`
 - `docs/OPERATING_MODES.md`
 - `docs/SECURITY.md`
