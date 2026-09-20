@@ -20,6 +20,13 @@ type Shutdowner interface { Shutdown(context.Context, config.HostConfig) (host.S
 type FSDRequester interface { RequestFSD(context.Context, string, string) error }
 type RecoveryRunner interface { RunNext(context.Context, state.State, []host.Config) (state.State, string, error) }
 
+const maxDirectShutdownAttempts = 3
+
+var (
+	errDirectShutdownRetryPending = errors.New("direct shutdown retry pending")
+	errDirectShutdownFailedSafe   = errors.New("direct shutdown entered failed-safe")
+)
+
 type Controller struct {
 	Config           config.Config
 	Policy           *policy.Coordinator
@@ -104,7 +111,17 @@ func (c *Controller) executeShutdown(ctx context.Context) error {
 	if c.Probe == nil || c.Shutdown == nil { return errors.New("shutdown dependencies are required") }
 	byID := make(map[string]config.HostConfig, len(c.Config.Hosts)); for _, h := range c.Config.Hosts { byID[h.ID]=h }
 	plan := host.BuildShutdownPlan(toHostConfigs(c.Config.Hosts))
-	for _, id := range plan.PreFSD { if err := c.settleDirect(ctx, byID[id]); err != nil { return err } }
+	for _, id := range plan.PreFSD {
+		if err := c.settleDirect(ctx, byID[id]); err != nil {
+			// Retryable/terminal host states are already durable. Do not advance
+			// to NUT FSD while a direct host is unresolved; the next policy tick
+			// either reconciles and retries, or FAILED_SAFE holds the transaction.
+			if errors.Is(err, errDirectShutdownRetryPending) || errors.Is(err, errDirectShutdownFailedSafe) {
+				return nil
+			}
+			return err
+		}
+	}
 	if len(plan.NUTGroup)>0 {
 		if c.FSD == nil { return errors.New("FSD requester is required for NUT-managed hosts") }
 		if c.Config.NUT.Profile == "remote-client" { return errors.New("remote-client profile cannot request FSD") }
@@ -118,17 +135,57 @@ func (c *Controller) executeShutdown(ctx context.Context) error {
 
 func (c *Controller) settleDirect(ctx context.Context, h config.HostConfig) error {
 	st:=c.Policy.State();hs:=st.Hosts[h.ID]
-	if hs.ShutdownState==state.ShutdownCompleted||hs.ShutdownState==state.ShutdownNotRequired||hs.ShutdownState==state.ShutdownFailed{return nil}
+	if hs.ShutdownState==state.ShutdownCompleted||hs.ShutdownState==state.ShutdownNotRequired{return nil}
+	if hs.ShutdownState==state.ShutdownFailed {
+		if err:=c.enterShutdownFailedSafe(h.ID,hs,"direct shutdown previously exhausted retries");err!=nil{return err}
+		return errDirectShutdownFailedSafe
+	}
 	if hs.ShutdownState==state.ShutdownRequested||hs.ShutdownState==state.ShutdownAcknowledged||hs.ShutdownState==state.ShutdownUnknown {
-		if h.Address==nil||h.Status.Method=="none" { hs.ShutdownState=state.ShutdownUnknown;hs.LastError="cannot reconcile prior shutdown without status probe";return c.persistHost(h.ID,hs) }
-		result,err:=c.Probe.Check(ctx,h);if err!=nil||!result.Known{hs.ShutdownState=state.ShutdownUnknown;if err!=nil{hs.LastError=err.Error()};return c.persistHost(h.ID,hs)};if !result.Online{hs.ShutdownState=state.ShutdownCompleted;hs.LastVerification="offline";hs.LastError="";return c.persistHost(h.ID,hs)}
+		if h.Address==nil||h.Status.Method=="none" {
+			hs.ShutdownState=state.ShutdownUnknown;hs.LastError="cannot reconcile prior shutdown without status probe"
+			if err:=c.persistHost(h.ID,hs);err!=nil{return err}
+			return errDirectShutdownRetryPending
+		}
+		result,err:=c.Probe.Check(ctx,h)
+		if err!=nil||!result.Known{
+			hs.ShutdownState=state.ShutdownUnknown
+			if err!=nil{hs.LastError=err.Error()}else{hs.LastError="shutdown state probe returned unknown"}
+			if err:=c.persistHost(h.ID,hs);err!=nil{return err}
+			return errDirectShutdownRetryPending
+		}
+		if !result.Online{hs.ShutdownState=state.ShutdownCompleted;hs.LastVerification="offline";hs.LastError="";return c.persistHost(h.ID,hs)}
+	}
+	if hs.ShutdownAttempts>=maxDirectShutdownAttempts {
+		if err:=c.enterShutdownFailedSafe(h.ID,hs,fmt.Sprintf("direct shutdown exhausted %d attempts while host is still online",maxDirectShutdownAttempts));err!=nil{return err}
+		return errDirectShutdownFailedSafe
 	}
 	hs.ShutdownAttempts++;hs.ShutdownState=state.ShutdownRequested;hs.LastActionID=fmt.Sprintf("shutdown:%s:%s:%d",st.TransactionID,h.ID,hs.ShutdownAttempts);hs.LastError="";if err:=c.persistHost(h.ID,hs);err!=nil{return err}
-	result,err:=c.Shutdown.Shutdown(ctx,h);if err!=nil{hs=c.Policy.State().Hosts[h.ID];hs.ShutdownState=state.ShutdownFailed;hs.LastError=err.Error();return c.persistHost(h.ID,hs)}
+	result,err:=c.Shutdown.Shutdown(ctx,h)
+	if err!=nil{
+		hs=c.Policy.State().Hosts[h.ID];hs.LastError=err.Error()
+		if hs.ShutdownAttempts>=maxDirectShutdownAttempts {
+			if err:=c.enterShutdownFailedSafe(h.ID,hs,fmt.Sprintf("direct shutdown exhausted %d attempts: %v",maxDirectShutdownAttempts,err));err!=nil{return err}
+			return errDirectShutdownFailedSafe
+		}
+		hs.ShutdownState=state.ShutdownUnknown
+		if err:=c.persistHost(h.ID,hs);err!=nil{return err}
+		return errDirectShutdownRetryPending
+	}
 	hs=c.Policy.State().Hosts[h.ID]
 	switch result.Disposition { case host.ShutdownNotRequired: hs.ShutdownState=state.ShutdownNotRequired; return c.persistHost(h.ID,hs); case host.ShutdownManagedByNUT: return fmt.Errorf("pre-FSD host %s unexpectedly delegated to NUT",h.ID); case host.ShutdownDirectRequested: hs.ShutdownState=state.ShutdownAcknowledged; if err:=c.persistHost(h.ID,hs);err!=nil{return err} }
 	if h.Address==nil||h.Status.Method=="none" { return nil }
-	waitCtx,cancel:=context.WithTimeout(ctx,time.Duration(h.Shutdown.TimeoutSeconds)*time.Second);defer cancel();err=c.Probe.Wait(waitCtx,h,false);hs=c.Policy.State().Hosts[h.ID];if err!=nil{hs.ShutdownState=state.ShutdownUnknown;hs.LastError=err.Error();hs.LastVerification="unknown"}else{hs.ShutdownState=state.ShutdownCompleted;hs.LastError="";hs.LastVerification="offline"};return c.persistHost(h.ID,hs)
+	waitCtx,cancel:=context.WithTimeout(ctx,time.Duration(h.Shutdown.TimeoutSeconds)*time.Second);defer cancel();err=c.Probe.Wait(waitCtx,h,false);hs=c.Policy.State().Hosts[h.ID];if err!=nil{hs.ShutdownState=state.ShutdownUnknown;hs.LastError=err.Error();hs.LastVerification="unknown"}else{hs.ShutdownState=state.ShutdownCompleted;hs.LastError="";hs.LastVerification="offline"};if err:=c.persistHost(h.ID,hs);err!=nil{return err};if hs.ShutdownState==state.ShutdownUnknown{return errDirectShutdownRetryPending};return nil
+}
+
+func (c *Controller) enterShutdownFailedSafe(id string, hs state.HostState, reason string) error {
+	hs.ShutdownState = state.ShutdownFailed
+	hs.LastError = reason
+	st := cloneState(c.Policy.State())
+	st.Hosts[id] = hs
+	st.PowerState = state.FailedSafe
+	st.FailedSafeReason = fmt.Sprintf("host %s: %s", id, reason)
+	_, err := c.Policy.Write(st)
+	return err
 }
 
 func (c *Controller) prepareNUTGroup(ctx context.Context, ids []string, byID map[string]config.HostConfig) error {
