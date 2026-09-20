@@ -2,8 +2,12 @@
 
 nut_write_clean_local_server(){
   local pw="$1" syn="$2" driver="${3:-${UPS_DRIVER:-usbhid-ups}}" port="${4:-${UPS_PORT:-auto}}" nut_dir="${COCKPIT_UPS_WOL_NUT_ETC_DIR:-/etc/nut}"
+  local listen_v4="${NUT_LISTEN_IPV4:-1}" listen_v6="${NUT_LISTEN_IPV6:-0}"
   [[ "$driver" =~ ^[A-Za-z0-9._-]+$ ]] || die "invalid NUT driver"
   [[ "$port" =~ ^[A-Za-z0-9_./:@+-]+$ && "$port" != -* ]] || die "invalid NUT driver port"
+  (( listen_v4 == 0 || listen_v4 == 1 )) || die "invalid NUT IPv4 listen flag"
+  (( listen_v6 == 0 || listen_v6 == 1 )) || die "invalid NUT IPv6 listen flag"
+  (( listen_v4 || listen_v6 )) || die "NUT must listen on at least one address family"
   install -d -m0750 "$nut_dir"
   printf 'MODE=netserver\n' >"$nut_dir/nut.conf"
   cat >"$nut_dir/ups.conf" <<EOF
@@ -12,8 +16,8 @@ nut_write_clean_local_server(){
   port = $port
 EOF
   : >"$nut_dir/upsd.conf"
-  ((NUT_LISTEN_IPV4)) && printf 'LISTEN 0.0.0.0 3493\n' >>"$nut_dir/upsd.conf"
-  ((NUT_LISTEN_IPV6)) && printf 'LISTEN :: 3493\n' >>"$nut_dir/upsd.conf"
+  ((listen_v4)) && printf 'LISTEN 0.0.0.0 3493\n' >>"$nut_dir/upsd.conf"
+  ((listen_v6)) && printf 'LISTEN :: 3493\n' >>"$nut_dir/upsd.conf"
   cat >"$nut_dir/upsd.users" <<EOF
 [ups-primary]
   password = $pw
@@ -61,6 +65,6 @@ nut_configure(){
   printf '%s\n' "$pw" >"$ETC_DIR/secrets/nut-primary-password"
   chmod 0600 "$ETC_DIR/secrets/nut-primary-password"
   nut_write_clean_local_server "$pw" "$syn" "$UPS_DRIVER" "$UPS_PORT"
-  log "created local NUT server config for UPS '$UPS_NAME' driver '$UPS_DRIVER' port '$UPS_PORT' network '$NETWORK_MODE'"
-  ((syn)) && warn "Synology monuser/secret enabled; keep NUT on a trusted/restricted protected LAN" || true
+  log "created minimal local NUT server config for UPS '$UPS_NAME' driver '$UPS_DRIVER' port '$UPS_PORT'"
+  ((syn)) && warn "Synology monuser/secret enabled; keep NUT on a trusted LAN unless restricted mode is configured" || true
 }
