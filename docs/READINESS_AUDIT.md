@@ -13,7 +13,7 @@ The repository should **not yet publish a tagged v0.1 release**. Two categories 
 1. **real hardware acceptance** — issue #10 remains open until amd64 + real UPS, arm64 + real UPS, and real Synology DSM NUT-secondary tests have retained evidence;
 2. **project license selection** — issue #12 remains open until a root `LICENSE` is selected and reuse/distribution implications are reviewed.
 
-No unresolved software P0 blocker from the original readiness audit remains.
+No unresolved software P0 blocker from the original readiness audit remains. The final installer reconciliation, tracked as issue #15, is complete: guided TUI, NUT discovery, explicit driver/port selection, optional restricted dual-stack NUT networking and safe empty fresh-install inventory are implemented and CI/E2E validated.
 
 ## 2. Current readiness by area
 
@@ -56,7 +56,7 @@ The original audit identified these blockers. Their current status is:
 - **Implementation stack decision — COMPLETE.** Go agent/CLI, React/TypeScript/PatternFly Cockpit, Bash installer, systemd/journald runtime.
 - **Controller UPS-backed topology — COMPLETE.** Normative deployment requirement and hardware preflight exist.
 - **Implementation roadmap/backlog — COMPLETE.** GitHub issues and `ROADMAP.md` are active.
-- **Installer synchronization — COMPLETE.** Service autostart, probation, LKG, interrupted upgrade rollback and TUI/discovery/network policy are implemented.
+- **Installer synchronization — COMPLETE.** Service autostart, probation, LKG, interrupted upgrade rollback, TUI, UPS discovery and network policy are implemented.
 
 ## 4. Installer readiness
 
