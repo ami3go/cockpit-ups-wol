@@ -82,11 +82,14 @@ nutdir="$tmp/nut"; UPS_NAME=labups
 COCKPIT_UPS_WOL_NUT_ETC_DIR="$nutdir" nut_write_clean_local_server secret 0 "$UPS_DRIVER" "$UPS_PORT"
 upsconf="$(cat "$nutdir/ups.conf")"
 upsdconf="$(cat "$nutdir/upsd.conf")"
+upsmon="$(cat "$nutdir/upsmon.conf")"
 assert_contains "$upsconf" '[labups]'
 assert_contains "$upsconf" '  driver = nutdrv_qx'
 assert_contains "$upsconf" '  port = auto'
 assert_contains "$upsdconf" 'LISTEN 0.0.0.0 3493'
 assert_contains "$upsdconf" 'LISTEN :: 3493'
+assert_contains "$upsmon" 'HOSTSYNC 60'
+assert_contains "$upsmon" 'FINALDELAY 15'
 
 rules="$tmp/firewall.nft"
 render_restricted_nft "$rules"
@@ -97,5 +100,24 @@ assert_contains "$nft_text" 'ip6 saddr fd00:1234::/64 tcp dport 3493 accept'
 assert_contains "$nft_text" 'meta nfproto ipv4 tcp dport 3493 drop'
 assert_contains "$nft_text" 'meta nfproto ipv6 tcp dport 3493 drop'
 if grep -Eq 'flush[[:space:]]+ruleset' "$rules"; then fail 'restricted policy must not flush host firewall'; fi
+
+# Durable installer transaction marker: once armed, it points at a complete
+# snapshot and survives until backup_commit is the durable commit point.
+BACKUP_BASE="$tmp/backups"
+STATE_DIR="$tmp/state"
+SYSTEMD_DIR="$tmp/systemd"
+LIBEXEC_DIR="$tmp/libexec"
+COCKPIT_UI_DIR="$tmp/cockpit"
+CURRENT_BACKUP="$BACKUP_BASE/snapshot-test"
+install -d -m0700 "$CURRENT_BACKUP"
+touch "$CURRENT_BACKUP/absent.list"
+source "$ROOT/scripts/install/transaction.sh"
+install_pending_begin
+[[ -f "$INSTALL_PENDING_MARKER" ]] || fail 'install-pending marker was not created'
+[[ "$(cat "$INSTALL_PENDING_MARKER")" == "$CURRENT_BACKUP" ]] || fail 'install-pending marker points at wrong snapshot'
+INSTALL_COMMITTED=0
+backup_commit
+[[ ! -e "$INSTALL_PENDING_MARKER" ]] || fail 'backup_commit did not clear durable install marker'
+[[ "$INSTALL_COMMITTED" -eq 1 ]] || fail 'backup_commit did not set commit state'
 
 echo 'installer-unit: PASS'
