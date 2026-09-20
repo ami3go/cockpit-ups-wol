@@ -38,8 +38,14 @@ jobs:
           cd release
           sha256sum -c SHA256SUMS
           for a in *.tar.gz; do
-            tar -tzf "$a" | grep -q '/install.sh$'
-            tar -tzf "$a" | grep -q '/cockpit/dist/manifest.json$'
+            contents="$(tar -tzf "$a")"
+            grep -q '/install.sh$' <<<"$contents"
+            grep -q '/cockpit/dist/manifest.json$' <<<"$contents"
+            grep -q '/scripts/install/discovery.sh$' <<<"$contents"
+            grep -q '/scripts/install/network.sh$' <<<"$contents"
+            grep -q '/scripts/install/tui.sh$' <<<"$contents"
+            grep -q '/packaging/systemd/cockpit-ups-wol-firewall.service$' <<<"$contents"
+            grep -q '/scripts/test/hardware-preflight.sh$' <<<"$contents"
           done
       - uses: actions/upload-artifact@v4
         with:
