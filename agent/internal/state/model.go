@@ -77,6 +77,11 @@ type State struct {
 	RecoveryStarted      bool                 `json:"recovery_started"`
 	ActiveConfigRevision string               `json:"active_config_revision"`
 	LastUPS              *UPSObservation      `json:"last_ups,omitempty"`
+	// OutageElapsedSeconds is a durable monotonic lower bound accumulated while
+	// the controller is known to be on battery. It intentionally does not rely
+	// on wall-clock/RTC correctness across reboot. Policy checkpoints it at a
+	// bounded interval so a reboot cannot restart max_on_battery from zero.
+	OutageElapsedSeconds int64                `json:"outage_elapsed_seconds,omitempty"`
 	Hosts                map[string]HostState `json:"hosts"`
 	ConfigTransaction    *ConfigTransaction   `json:"config_transaction,omitempty"`
 	FailedSafeReason     string               `json:"failed_safe_reason,omitempty"`
