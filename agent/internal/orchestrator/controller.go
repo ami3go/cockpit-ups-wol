@@ -21,13 +21,13 @@ type FSDRequester interface { RequestFSD(context.Context, string, string) error 
 type RecoveryRunner interface { RunNext(context.Context, state.State, []host.Config) (state.State, string, error) }
 
 type Controller struct {
-	Config          config.Config
-	Policy          *policy.Coordinator
-	Probe           Prober
-	Shutdown        Shutdowner
-	FSD             FSDRequester
-	Recovery        RecoveryRunner
-	UPSMonConfPath  string
+	Config           config.Config
+	Policy           *policy.Coordinator
+	Probe            Prober
+	Shutdown         Shutdowner
+	FSD              FSDRequester
+	Recovery         RecoveryRunner
+	UPSMonConfPath   string
 	NewTransactionID func() string
 }
 
@@ -49,6 +49,13 @@ func (c *Controller) Tick(ctx context.Context, now time.Time, in policy.Inputs) 
 	case policy.ActionStartRestore:
 		if err := c.executeRecoveryStep(ctx); err != nil { return decision, err }
 	case policy.ActionStopRecovery:
+		// A power failure during recovery is a new outage, not a continuation of
+		// the old shutdown transaction. Re-snapshot actual host state so hosts
+		// already restored online become shutdown targets again and stale
+		// ShutdownCompleted markers cannot suppress the second shutdown.
+		if c.Policy.State().PowerState == state.OnBattery {
+			if err := c.beginFreshOutage(ctx); err != nil { return decision, err }
+		}
 		return decision, nil
 	}
 	if c.Policy.State().PowerState == state.ShutdownInProgress && decision.Action == policy.ActionNone {
