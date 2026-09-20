@@ -70,7 +70,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Bash syntax
-        run: bash -n install.sh scripts/install/common.sh scripts/install/nut.sh scripts/install/discovery.sh scripts/install/configuration.sh scripts/install/validate.sh scripts/install/cockpit.sh scripts/install/transaction.sh scripts/install/distros/*.sh scripts/test/installer-unit.sh scripts/test/install-e2e.sh scripts/test/hardware-preflight.sh
+        run: bash -n install.sh scripts/install/common.sh scripts/install/nut.sh scripts/install/discovery.sh scripts/install/network.sh scripts/install/configuration.sh scripts/install/validate.sh scripts/install/cockpit.sh scripts/install/transaction.sh scripts/install/distros/*.sh scripts/test/installer-unit.sh scripts/test/install-e2e.sh scripts/test/hardware-preflight.sh
       - name: Installer backend unit tests
         run: ./scripts/test/installer-unit.sh
       - name: Installer self-check
@@ -78,6 +78,7 @@ jobs:
           ./install.sh --check --profile local-server
           ./install.sh --check --profile remote-client
           ./install.sh --check --profile existing
+          ./install.sh --check --profile local-server --network-mode restricted --allow-client 192.168.10.0/24
       - name: Reject incompatible silent TUI modes
         run: |
           if ./install.sh --check --silent --tui; then
