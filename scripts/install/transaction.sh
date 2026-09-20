@@ -44,13 +44,12 @@ systemd_reload_enable(){
   systemctl daemon-reload
   enable_if_exists cockpit.socket || warn "cockpit.socket not found"
 
-  if [[ "$PROFILE" == local-server && "${PROJECT_CONFIG_CREATED:-0}" -eq 1 ]]; then
-    if [[ "$NETWORK_MODE" == restricted ]]; then
-      systemctl enable --now cockpit-ups-wol-firewall.service
-    else
-      systemctl disable --now cockpit-ups-wol-firewall.service >/dev/null 2>&1 || true
-    fi
-  fi
+  case "${NETWORK_FIREWALL_ACTION:-unchanged}" in
+    enable) systemctl enable --now cockpit-ups-wol-firewall.service ;;
+    disable) systemctl disable --now cockpit-ups-wol-firewall.service >/dev/null 2>&1 || true ;;
+    unchanged) : ;;
+    *) die "invalid firewall transaction action: $NETWORK_FIREWALL_ACTION" ;;
+  esac
 
   case "$PROFILE" in
     local-server)
