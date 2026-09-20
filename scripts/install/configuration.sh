@@ -6,7 +6,9 @@ resolve_profile_inputs(){
     die "Synology compatibility requires UPS name 'ups'"
   fi
   if [[ "$PROFILE" == remote-client && -z "$NUT_HOST" ]]; then
-    if ((SILENT)); then
+    if ((CHECK_ONLY)); then
+      NUT_HOST=localhost
+    elif ((SILENT)); then
       die "remote-client --silent requires --nut-host"
     elif [[ "$MODE" == tui ]] && declare -F tui_input >/dev/null; then
       NUT_HOST="$(tui_input 'Remote NUT server' 'Remote NUT server hostname or IP.' '')" || exit 1
@@ -28,6 +30,22 @@ resolve_profile_inputs(){
   [[ "$UTILITY_STABLE" =~ ^[1-9][0-9]*$ ]] || die "utility stable seconds must be > 0"
   [[ "$NETWORK_WAIT" =~ ^[0-9]+$ ]] || die "network wait seconds must be >= 0"
   validate_network_inputs
+}
+
+strip_example_inventory(){
+  local cfg="$1" tmp="${cfg}.inventory.tmp"
+  awk '
+    /^network_dependencies:/ {
+      print "network_dependencies: []"
+      print "hosts: []"
+      found=1
+      exit
+    }
+    { print }
+    END { if (!found) exit 42 }
+  ' "$cfg" >"$tmp" || { rm -f "$tmp"; die "cannot sanitize example inventory"; }
+  mv "$tmp" "$cfg"
+  chmod 0600 "$cfg"
 }
 
 install_project_config(){
@@ -76,6 +94,7 @@ install_project_config(){
   if ((SYNOLOGY)); then
     sed -i '/synology_compatibility:/,/hosts_sync_seconds:/ s/enabled: false/enabled: true/' "$ETC_DIR/config.yaml"
   fi
+  strip_example_inventory "$ETC_DIR/config.yaml"
 }
 
 final_report(){
@@ -84,5 +103,9 @@ final_report(){
     printf '  UPS driver: %s\n  UPS port: %s\n  NUT network: %s\n' "$UPS_DRIVER" "$UPS_PORT" "$NETWORK_MODE"
   fi
   printf '  recovery gate: charge >= %s%%, utility stable %ss, network wait %ss\n' "$RECOVERY_CHARGE" "$UTILITY_STABLE" "$NETWORK_WAIT"
+  printf '  managed hosts: none on fresh install (enroll real devices before arming)\n'
   printf '  config: %s/config.yaml\n  log: %s\n  rollback: %s\n\nBefore arming verify UPS-backed SBC power, automatic boot, network power, and UPS output-cycle behavior.\n' "$ETC_DIR" "$INSTALL_LOG" "$CURRENT_BACKUP"
+  if [[ "$MODE" == tui ]] && declare -F tui_msg >/dev/null; then
+    tui_msg 'Installation complete' "Installation and probation passed.\n\nMode: $OPERATING_MODE\nProfile: $PROFILE\nConfig: $ETC_DIR/config.yaml\n\nFresh installs contain no managed hosts. Enroll and verify real devices before arming."
+  fi
 }
