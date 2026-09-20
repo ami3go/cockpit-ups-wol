@@ -1,0 +1,13 @@
+[Unit]
+Description=cockpit-ups-wol interrupted installation recovery
+After=local-fs.target
+Before=cockpit-ups-wol-agent.service cockpit-ups-wol-health.timer
+ConditionPathExists=/var/backups/cockpit-ups-wol/install-pending
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/cockpit-ups-wol/cockpit-ups-wol-install-recover
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target
