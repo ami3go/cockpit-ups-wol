@@ -95,6 +95,10 @@ fi
 run_stage "resolve profile" resolve_profile_inputs
 run_stage "confirmation" confirm_install
 run_stage "rollback snapshot" backup_begin
+# Bootstrap the recovery guard before arming the marker. After the marker is
+# durable, every functional project/NUT change is recoverable on the next boot.
+run_stage "boot recovery guard" install_boot_recovery_guard
+run_stage "durable transaction marker" install_pending_begin
 run_stage "packages" install_packages
 run_stage "UPS discovery" resolve_local_ups_after_packages
 if [[ "$MODE" == tui ]]; then run_stage "UPS review" tui_post_discovery_review; fi
