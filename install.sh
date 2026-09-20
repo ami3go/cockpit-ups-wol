@@ -22,6 +22,7 @@ RECOVERY_CHARGE=80
 UTILITY_STABLE=120
 NETWORK_WAIT=300
 PROJECT_CONFIG_CREATED=0
+NETWORK_FIREWALL_ACTION=unchanged
 usage(){ cat <<'USAGE'
 Usage: sudo ./install.sh [--tui|--silent] [--synology]
                          [--profile local-server|remote-client|existing]
@@ -75,17 +76,28 @@ source "$SELF_DIR/scripts/install/configuration.sh"
 source "$SELF_DIR/scripts/install/validate.sh"
 source "$SELF_DIR/scripts/install/cockpit.sh"
 source "$SELF_DIR/scripts/install/transaction.sh"
-[[ -f "$SELF_DIR/scripts/install/tui.sh" ]] && source "$SELF_DIR/scripts/install/tui.sh"
+source "$SELF_DIR/scripts/install/tui.sh"
 if ((CHECK_ONLY)); then resolve_profile_inputs; installer_self_check; exit 0; fi
 require_root
 log_init
 trap 'install_failure "$LINENO" "$?"' ERR
-run_stage(){ local name="$1"; shift; log "stage: $name"; "$@"; log "stage complete: $name"; }
+run_stage(){
+  local name="$1"; shift
+  log "stage: $name"
+  declare -F tui_progress >/dev/null && tui_progress "Running: $name" || true
+  "$@"
+  log "stage complete: $name"
+}
+if [[ "$MODE" == tui ]]; then
+  run_stage "TUI backend" tui_prepare_backend
+  run_stage "TUI configuration" tui_wizard
+fi
 run_stage "resolve profile" resolve_profile_inputs
 run_stage "confirmation" confirm_install
 run_stage "rollback snapshot" backup_begin
 run_stage "packages" install_packages
 run_stage "UPS discovery" resolve_local_ups_after_packages
+if [[ "$MODE" == tui ]]; then run_stage "UPS review" tui_post_discovery_review; fi
 run_stage "project directories" install_project_dirs
 run_stage "project binaries" install_project_binaries
 run_stage "project configuration" install_project_config
