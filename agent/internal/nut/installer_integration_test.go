@@ -19,7 +19,7 @@ func TestInstallerGeneratedNUTConfigMatchesFSDAndSynologyPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	nutDir := filepath.Join(t.TempDir(), "nut")
-	cmd := exec.Command("bash", "-c", `set -euo pipefail; source "$1"; UPS_NAME=ups; nut_write_clean_local_server primary-secret 1`, "bash", repoScript)
+	cmd := exec.Command("bash", "-c", `set -euo pipefail; source "$1"; UPS_NAME=ups; nut_write_clean_local_server primary-secret 1 usbhid-ups auto 73 21`, "bash", repoScript)
 	cmd.Env = append(os.Environ(), "COCKPIT_UPS_WOL_NUT_ETC_DIR="+nutDir)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("generate installer NUT config: %v: %s", err, out)
@@ -28,6 +28,16 @@ func TestInstallerGeneratedNUTConfigMatchesFSDAndSynologyPolicy(t *testing.T) {
 	upsmonPath := filepath.Join(nutDir, "upsmon.conf")
 	if err := ValidatePrimaryMonitor(upsmonPath, "ups"); err != nil {
 		t.Fatalf("generated controller is not primary: %v", err)
+	}
+	upsmonBytes, err := os.ReadFile(upsmonPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	upsmonText := string(upsmonBytes)
+	for _, required := range []string{"HOSTSYNC 73", "FINALDELAY 21"} {
+		if !strings.Contains(upsmonText, required) {
+			t.Fatalf("generated upsmon.conf missing %q:\n%s", required, upsmonText)
+		}
 	}
 
 	users, err := os.ReadFile(filepath.Join(nutDir, "upsd.users"))
@@ -70,5 +80,21 @@ func TestInstallerGeneratedNUTConfigMatchesFSDAndSynologyPolicy(t *testing.T) {
 	}
 	if r.name != "" {
 		t.Fatalf("secondary role invoked destructive command: %q %v", r.name, r.args)
+	}
+
+	// upsmon -c fsd is process-wide for all UPSes monitored as primary. Until
+	// multi-UPS ownership is explicitly modeled, two primary entries must fail
+	// closed before the destructive command is invoked.
+	multiPrimary := "MONITOR ups@localhost 1 mon secret primary\nMONITOR other@localhost 1 mon secret primary\n"
+	if err := os.WriteFile(upsmonPath, []byte(multiPrimary), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r = &fakeRunner{}
+	client.Runner = r
+	if err := client.RequestFSD(context.Background(), "ups", upsmonPath); !errors.Is(err, ErrMultiplePrimaries) {
+		t.Fatalf("multi-primary FSD err=%v want ErrMultiplePrimaries", err)
+	}
+	if r.name != "" {
+		t.Fatalf("multi-primary config invoked destructive command: %q %v", r.name, r.args)
 	}
 }
