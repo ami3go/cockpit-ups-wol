@@ -11,6 +11,7 @@ import (
 )
 
 var ErrNotPrimary = errors.New("upsmon configuration does not declare this UPS primary")
+var ErrMultiplePrimaries = errors.New("upsmon configuration declares multiple primary UPS monitors")
 
 func ValidatePrimaryMonitor(path, upsName string) error {
 	f, err := os.Open(path)
@@ -19,6 +20,8 @@ func ValidatePrimaryMonitor(path, upsName string) error {
 	}
 	defer f.Close()
 
+	primaryCount := 0
+	targetPrimary := false
 	s := bufio.NewScanner(f)
 	for s.Scan() {
 		line := strings.TrimSpace(s.Text())
@@ -29,22 +32,32 @@ func ValidatePrimaryMonitor(path, upsName string) error {
 		if len(fields) < 6 || !strings.EqualFold(fields[0], "MONITOR") {
 			continue
 		}
+		role := strings.ToLower(fields[5])
+		if role != "primary" && role != "master" {
+			continue
+		}
+		primaryCount++
 		configuredUPS := fields[1]
 		if at := strings.IndexByte(configuredUPS, '@'); at >= 0 {
 			configuredUPS = configuredUPS[:at]
 		}
-		if configuredUPS != upsName {
-			continue
-		}
-		role := strings.ToLower(fields[5])
-		if role == "primary" || role == "master" {
-			return nil
+		if configuredUPS == upsName {
+			targetPrimary = true
 		}
 	}
 	if err := s.Err(); err != nil {
 		return fmt.Errorf("scan upsmon config: %w", err)
 	}
-	return ErrNotPrimary
+	if !targetPrimary {
+		return ErrNotPrimary
+	}
+	// `upsmon -c fsd` is process-wide for UPSes this upsmon monitors as primary.
+	// Until multi-UPS FSD ownership is explicitly modeled and hardware-tested,
+	// fail closed rather than accidentally setting FSD on another primary UPS.
+	if primaryCount != 1 {
+		return fmt.Errorf("%w: found %d primary/master MONITOR entries", ErrMultiplePrimaries, primaryCount)
+	}
+	return nil
 }
 
 func (c *Client) RequestFSD(ctx context.Context, upsName, upsmonConfPath string) error {
