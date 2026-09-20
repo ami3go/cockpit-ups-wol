@@ -51,7 +51,11 @@ func TestUtilityRestoredBeforeCommitCancels(t *testing.T) {
 	e := New(Config{GracePeriod: 2 * time.Minute}, baseState())
 	_, _ = e.Step(now, Inputs{UPS: nut.Status{Utility: nut.UtilityOnline}})
 	_, _ = e.Step(now.Add(time.Second), Inputs{UPS: nut.Status{Utility: nut.UtilityOnBattery}})
-	d, err := e.Step(now.Add(10*time.Second), Inputs{UPS: nut.Status{Utility: nut.UtilityOnline}})
+	first, err := e.Step(now.Add(10*time.Second), Inputs{UPS: nut.Status{Utility: nut.UtilityOnline}})
+	if err != nil || first.Changed || e.State().PowerState != state.OnBattery {
+		t.Fatalf("first OL sample must only debounce: decision=%+v state=%+v err=%v", first, e.State(), err)
+	}
+	d, err := e.Step(now.Add(11*time.Second), Inputs{UPS: nut.Status{Utility: nut.UtilityOnline}})
 	if err != nil || !d.Changed || e.State().PowerState != state.Normal || e.State().ShutdownCommitted {
 		t.Fatalf("decision=%+v state=%+v err=%v", d, e.State(), err)
 	}
@@ -158,9 +162,10 @@ func TestPowerFailDuringRestoreStopsRecovery(t *testing.T) {
 	st.ShutdownCommitted = true
 	st.RecoveryStarted = true
 	e := New(Config{}, st)
-	// First call reconciles boot and resumes restore.
-	_, _ = e.Step(time.Now(), Inputs{UPS: nut.Status{Utility: nut.UtilityOnline}})
-	d, err := e.Step(time.Now().Add(time.Second), Inputs{UPS: nut.Status{Utility: nut.UtilityOnBattery}})
+	// First call reconciles boot and resumes restore only when the control stack
+	// and network are both explicitly safe.
+	_, _ = e.Step(time.Now(), Inputs{UPS: nut.Status{Utility: nut.UtilityOnline}, NetworkReady: true, HealthSafe: true})
+	d, err := e.Step(time.Now().Add(time.Second), Inputs{UPS: nut.Status{Utility: nut.UtilityOnBattery}, NetworkReady: true, HealthSafe: true})
 	if err != nil || d.Action != ActionStopRecovery || e.State().PowerState != state.OnBattery {
 		t.Fatalf("decision=%+v state=%s err=%v", d, e.State().PowerState, err)
 	}

@@ -9,16 +9,21 @@ import (
 	"github.com/ami3go/cockpit-ups-wol/agent/internal/state"
 )
 
+const outageCheckpointInterval = 30 * time.Second
+const preCommitOnlineConfirmations = 2
+
 type Config struct {
-	GracePeriod          time.Duration
-	MaxOnBattery         time.Duration
-	CriticalCharge       *float64
-	CriticalRuntime      time.Duration
-	RecoveryEnabled      *bool
-	UtilityStable        time.Duration
-	RecoveryChargeMin    *float64
-	RecoveryRuntimeMin   time.Duration
-	RecoveryRechargeTime time.Duration
+	GracePeriod            time.Duration
+	MaxOnBattery           time.Duration
+	CriticalCharge         *float64
+	CriticalRuntime        time.Duration
+	CommunicationLossGrace time.Duration
+	RecoveryEnabled        *bool
+	UtilityStable          time.Duration
+	RecoveryChargeMin      *float64
+	RecoveryRuntimeMin     time.Duration
+	RecoveryRechargeTime   time.Duration
+	RecoveryNetworkWait    time.Duration
 }
 
 type Inputs struct {
@@ -44,11 +49,15 @@ type Decision struct {
 }
 
 type Engine struct {
-	cfg            Config
-	st             state.State
-	resumeState    state.PowerState
-	onBatterySince time.Time
-	onlineSince    time.Time
+	cfg                   Config
+	st                    state.State
+	resumeState           state.PowerState
+	onBatterySince        time.Time
+	onlineSince           time.Time
+	unknownSince          time.Time
+	networkWaitSince      time.Time
+	lastOutageCheckpoint  time.Time
+	onlineConfirmations   int
 }
 
 func New(cfg Config, persisted state.State) *Engine {
@@ -82,6 +91,10 @@ func (e *Engine) Step(now time.Time, in Inputs) (Decision, error) {
 	case state.Normal:
 		if in.UPS.Utility == nut.UtilityOnBattery {
 			e.onBatterySince = now
+			e.lastOutageCheckpoint = now
+			e.unknownSince = time.Time{}
+			e.onlineConfirmations = 0
+			e.st.OutageElapsedSeconds = 0
 			e.st.PowerState = state.OnBattery
 			return Decision{Changed: true, Action: ActionNone, Reason: "UPS on battery"}, nil
 		}
@@ -103,6 +116,7 @@ func (e *Engine) Step(now time.Time, in Inputs) (Decision, error) {
 				return Decision{Action: ActionNone, Reason: "automatic recovery disabled"}, nil
 			}
 			e.onlineSince = now
+			e.networkWaitSince = time.Time{}
 			e.st.PowerState = state.RecoveryWait
 			return Decision{Changed: true, Action: ActionNone, Reason: "utility restored; recovery gates pending"}, nil
 		}
@@ -119,9 +133,23 @@ func (e *Engine) Step(now time.Time, in Inputs) (Decision, error) {
 		}
 		if unsafeUPS(in.UPS) {
 			e.onlineSince = time.Time{}
+			e.networkWaitSince = time.Time{}
 			e.st.PowerState = state.OnBattery
 			return Decision{Changed: true, Action: ActionStopRecovery, Reason: "unsafe UPS state after recovery commit"}, nil
 		}
+		if !in.HealthSafe {
+			return e.failSafe("critical control-stack health became unsafe during recovery"), nil
+		}
+		if !in.NetworkReady {
+			if e.networkWaitSince.IsZero() {
+				e.networkWaitSince = now
+			}
+			if e.cfg.RecoveryNetworkWait > 0 && now.Sub(e.networkWaitSince) >= e.cfg.RecoveryNetworkWait {
+				return e.failSafe("network readiness timeout during committed recovery"), nil
+			}
+			return Decision{Action: ActionNone, Reason: "recovery paused: network not ready"}, nil
+		}
+		e.networkWaitSince = time.Time{}
 		e.st.PowerState = state.RestoreHosts
 		return Decision{Changed: true, Action: ActionStartRestore, Reason: "recovery commit durable"}, nil
 
@@ -133,9 +161,24 @@ func (e *Engine) Step(now time.Time, in Inputs) (Decision, error) {
 		}
 		if unsafeUPS(in.UPS) {
 			e.onlineSince = time.Time{}
+			e.networkWaitSince = time.Time{}
 			e.st.PowerState = state.OnBattery
 			return Decision{Changed: true, Action: ActionStopRecovery, Reason: "power failed during host restoration"}, nil
 		}
+		if !in.HealthSafe {
+			return e.failSafe("critical control-stack health became unsafe during host restoration"), nil
+		}
+		if !in.NetworkReady {
+			if e.networkWaitSince.IsZero() {
+				e.networkWaitSince = now
+			}
+			// Move back behind the recovery-start gate. The orchestrator only
+			// runs host restoration in RESTORE_HOSTS, so no additional WoL is
+			// emitted while the network is unavailable.
+			e.st.PowerState = state.RecoveryStarted
+			return Decision{Changed: true, Action: ActionNone, Reason: "host restoration paused: network not ready"}, nil
+		}
+		e.networkWaitSince = time.Time{}
 		return Decision{Action: ActionNone}, nil
 
 	default:
@@ -158,9 +201,14 @@ func (e *Engine) MarkRecoveryComplete() Decision {
 	e.st.PowerState = state.Normal
 	e.st.ShutdownCommitted = false
 	e.st.RecoveryStarted = false
+	e.st.OutageElapsedSeconds = 0
 	e.resumeState = state.Normal
 	e.onBatterySince = time.Time{}
 	e.onlineSince = time.Time{}
+	e.unknownSince = time.Time{}
+	e.networkWaitSince = time.Time{}
+	e.lastOutageCheckpoint = time.Time{}
+	e.onlineConfirmations = 0
 	return Decision{Changed: true, Action: ActionNone, Reason: "recovery complete"}
 }
 
@@ -179,6 +227,14 @@ func (e *Engine) reconcileBoot(now time.Time, in Inputs) (Decision, error) {
 			e.st.PowerState = state.OnBattery
 			return Decision{Changed: true, Action: ActionStopRecovery, Reason: "booted into unsafe power after recovery started"}, nil
 		}
+		if !in.HealthSafe {
+			return e.failSafe("critical control-stack health unsafe while reconciling committed recovery"), nil
+		}
+		if !in.NetworkReady {
+			e.networkWaitSince = now
+			e.st.PowerState = state.RecoveryStarted
+			return Decision{Changed: true, Action: ActionNone, Reason: "committed recovery paused at boot: network not ready"}, nil
+		}
 		e.st.PowerState = state.RestoreHosts
 		return Decision{Changed: true, Action: ActionStartRestore, Reason: "resume committed recovery"}, nil
 	}
@@ -190,6 +246,7 @@ func (e *Engine) reconcileBoot(now time.Time, in Inputs) (Decision, error) {
 				return Decision{Changed: e.resumeState != state.WaitingForAC, Action: ActionNone, Reason: "committed shutdown found; automatic recovery disabled"}, nil
 			}
 			e.onlineSince = now
+			e.networkWaitSince = time.Time{}
 			e.st.PowerState = state.RecoveryWait
 			return Decision{Changed: true, Action: ActionNone, Reason: "committed shutdown found; utility online; wait recovery gates"}, nil
 		}
@@ -198,19 +255,23 @@ func (e *Engine) reconcileBoot(now time.Time, in Inputs) (Decision, error) {
 	}
 
 	if in.UPS.Utility == nut.UtilityOnBattery {
-		// If the durable pre-reboot state was already ON_BATTERY, do not restart
-		// the grace window from zero. Repeated controller resets during an outage
-		// must not postpone evaluation of battery/runtime/time shutdown triggers.
-		if e.resumeState == state.OnBattery {
-			e.onBatterySince = now.Add(-e.cfg.GracePeriod)
-		} else {
-			e.onBatterySince = now
+		// Preserve a monotonic lower bound of elapsed outage time across reboot.
+		// The durable value is checkpointed while running and never depends on
+		// wall-clock correctness. Keep the previous grace protection as a lower
+		// bound for older state generations that predate elapsed checkpoints.
+		elapsed := time.Duration(e.st.OutageElapsedSeconds) * time.Second
+		if e.resumeState == state.OnBattery && elapsed < e.cfg.GracePeriod {
+			elapsed = e.cfg.GracePeriod
 		}
+		e.onBatterySince = now.Add(-elapsed)
+		e.lastOutageCheckpoint = now
+		e.onlineConfirmations = 0
 		e.st.PowerState = state.OnBattery
 		return Decision{Changed: true, Action: ActionNone, Reason: "booted while on battery"}, nil
 	}
 
 	if in.UPS.Utility == nut.UtilityOnline {
+		e.st.OutageElapsedSeconds = 0
 		e.st.PowerState = state.Normal
 		return Decision{Changed: true, Action: ActionNone, Reason: "boot reconciliation complete"}, nil
 	}
@@ -219,40 +280,82 @@ func (e *Engine) reconcileBoot(now time.Time, in Inputs) (Decision, error) {
 
 func (e *Engine) stepOnBattery(now time.Time, in Inputs) (Decision, error) {
 	if in.UPS.Utility == nut.UtilityOnline && !e.st.ShutdownCommitted {
+		e.unknownSince = time.Time{}
+		e.onlineConfirmations++
+		if e.onlineConfirmations < preCommitOnlineConfirmations {
+			return Decision{Action: ActionNone, Reason: "utility online sample observed; awaiting confirmation"}, nil
+		}
+		e.onlineConfirmations = 0
 		e.onBatterySince = time.Time{}
+		e.lastOutageCheckpoint = time.Time{}
+		e.st.OutageElapsedSeconds = 0
 		e.st.PowerState = state.Normal
-		return Decision{Changed: true, Action: ActionNone, Reason: "utility restored before shutdown commit"}, nil
+		return Decision{Changed: true, Action: ActionNone, Reason: "utility restored before shutdown commit after consecutive confirmation"}, nil
+	}
+	e.onlineConfirmations = 0
+
+	if in.UPS.LowBattery && in.UPS.Utility != nut.UtilityOnline {
+		return e.commitShutdown("low battery observed"), nil
 	}
 	if in.UPS.Utility == nut.UtilityUnknown {
-		return Decision{Action: ActionNone, Reason: "UPS state unknown; outage context retained"}, nil
+		if e.unknownSince.IsZero() {
+			e.unknownSince = now
+		}
+		if e.cfg.CommunicationLossGrace > 0 && now.Sub(e.unknownSince) >= e.cfg.CommunicationLossGrace {
+			return e.commitShutdown("UPS communication loss grace expired during active outage"), nil
+		}
+		return Decision{Action: ActionNone, Reason: "UPS state unknown; outage context retained within communication-loss grace"}, nil
 	}
+	e.unknownSince = time.Time{}
 	if in.UPS.Utility != nut.UtilityOnBattery {
 		return Decision{Action: ActionNone}, nil
-	}
-	if in.UPS.FSD {
-		return e.commitShutdown("FSD observed"), nil
-	}
-	if in.UPS.LowBattery {
-		return e.commitShutdown("low battery observed"), nil
 	}
 
 	if e.onBatterySince.IsZero() {
 		e.onBatterySince = now
+		e.lastOutageCheckpoint = now
 	}
 	elapsed := now.Sub(e.onBatterySince)
 	if elapsed < e.cfg.GracePeriod {
-		return Decision{Action: ActionNone, Reason: "outage grace period"}, nil
+		return e.checkpointOutage(now, elapsed, "outage grace period"), nil
 	}
 	if e.cfg.CriticalRuntime > 0 && in.UPS.RuntimeSeconds != nil && time.Duration(*in.UPS.RuntimeSeconds)*time.Second <= e.cfg.CriticalRuntime {
+		e.recordOutageElapsed(elapsed)
 		return e.commitShutdown("critical runtime threshold reached"), nil
 	}
 	if e.cfg.CriticalCharge != nil && in.UPS.ChargePercent != nil && *in.UPS.ChargePercent <= *e.cfg.CriticalCharge {
+		e.recordOutageElapsed(elapsed)
 		return e.commitShutdown("critical battery threshold reached"), nil
 	}
 	if e.cfg.MaxOnBattery > 0 && elapsed >= e.cfg.MaxOnBattery {
+		e.recordOutageElapsed(elapsed)
 		return e.commitShutdown("maximum time on battery reached"), nil
 	}
-	return Decision{Action: ActionNone, Reason: "on battery; no shutdown trigger reached"}, nil
+	return e.checkpointOutage(now, elapsed, "on battery; no shutdown trigger reached"), nil
+}
+
+func (e *Engine) checkpointOutage(now time.Time, elapsed time.Duration, reason string) Decision {
+	if e.lastOutageCheckpoint.IsZero() {
+		e.lastOutageCheckpoint = now
+		return Decision{Action: ActionNone, Reason: reason}
+	}
+	if now.Sub(e.lastOutageCheckpoint) < outageCheckpointInterval {
+		return Decision{Action: ActionNone, Reason: reason}
+	}
+	before := e.st.OutageElapsedSeconds
+	e.recordOutageElapsed(elapsed)
+	e.lastOutageCheckpoint = now
+	if e.st.OutageElapsedSeconds != before {
+		return Decision{Changed: true, Action: ActionNone, Reason: reason + "; outage elapsed checkpointed"}
+	}
+	return Decision{Action: ActionNone, Reason: reason}
+}
+
+func (e *Engine) recordOutageElapsed(elapsed time.Duration) {
+	seconds := int64(elapsed / time.Second)
+	if seconds > e.st.OutageElapsedSeconds {
+		e.st.OutageElapsedSeconds = seconds
+	}
 }
 
 func (e *Engine) commitShutdown(reason string) Decision {
@@ -264,11 +367,13 @@ func (e *Engine) commitShutdown(reason string) Decision {
 func (e *Engine) stepRecoveryWait(now time.Time, in Inputs) (Decision, error) {
 	if !recoveryEnabled(e.cfg) {
 		e.onlineSince = time.Time{}
+		e.networkWaitSince = time.Time{}
 		e.st.PowerState = state.WaitingForAC
 		return Decision{Changed: true, Action: ActionNone, Reason: "automatic recovery disabled"}, nil
 	}
 	if in.UPS.Utility != nut.UtilityOnline || in.UPS.LowBattery || in.UPS.FSD {
 		e.onlineSince = time.Time{}
+		e.networkWaitSince = time.Time{}
 		if in.UPS.Utility == nut.UtilityOnBattery || in.UPS.LowBattery || in.UPS.FSD {
 			e.st.PowerState = state.WaitingForAC
 			return Decision{Changed: true, Action: ActionNone, Reason: "recovery gate reset by unsafe power"}, nil
@@ -280,20 +385,35 @@ func (e *Engine) stepRecoveryWait(now time.Time, in Inputs) (Decision, error) {
 	}
 	stableFor := now.Sub(e.onlineSince)
 	if stableFor < e.cfg.UtilityStable {
+		e.networkWaitSince = time.Time{}
 		return Decision{Action: ActionNone, Reason: "utility stability timer"}, nil
 	}
 	if !rechargeGate(e.cfg, in.UPS, stableFor) {
+		e.networkWaitSince = time.Time{}
 		return Decision{Action: ActionNone, Reason: "UPS recharge gate not satisfied"}, nil
 	}
 	if !in.NetworkReady {
+		if e.networkWaitSince.IsZero() {
+			e.networkWaitSince = now
+		}
+		if e.cfg.RecoveryNetworkWait > 0 && now.Sub(e.networkWaitSince) >= e.cfg.RecoveryNetworkWait {
+			return e.failSafe("network dependencies did not become ready within configured recovery wait"), nil
+		}
 		return Decision{Action: ActionNone, Reason: "network not ready"}, nil
 	}
+	e.networkWaitSince = time.Time{}
 	if !in.HealthSafe {
 		return Decision{Action: ActionNone, Reason: "control stack health not safe"}, nil
 	}
 	e.st.RecoveryStarted = true
 	e.st.PowerState = state.RecoveryStarted
 	return Decision{Changed: true, Action: ActionCommitRecovery, Reason: "all recovery gates satisfied"}, nil
+}
+
+func (e *Engine) failSafe(reason string) Decision {
+	e.st.PowerState = state.FailedSafe
+	e.st.FailedSafeReason = reason
+	return Decision{Changed: true, Action: ActionNone, Reason: reason}
 }
 
 func recoveryEnabled(cfg Config) bool {

@@ -318,9 +318,11 @@ func (t *dependencyTracker) Ready(ctx context.Context) bool {
 func policyFromConfig(cfg config.Config) policy.Config {
 	recoveryEnabled := cfg.Recovery.Enabled
 	out := policy.Config{
-		GracePeriod:     time.Duration(cfg.Outage.GracePeriodSeconds) * time.Second,
-		RecoveryEnabled: &recoveryEnabled,
-		UtilityStable:   time.Duration(cfg.Recovery.UtilityStableSeconds) * time.Second,
+		GracePeriod:            time.Duration(cfg.Outage.GracePeriodSeconds) * time.Second,
+		CommunicationLossGrace: time.Duration(cfg.Outage.CommunicationLossGraceSeconds) * time.Second,
+		RecoveryEnabled:        &recoveryEnabled,
+		UtilityStable:          time.Duration(cfg.Recovery.UtilityStableSeconds) * time.Second,
+		RecoveryNetworkWait:    time.Duration(cfg.Recovery.NetworkWaitSeconds) * time.Second,
 	}
 	if cfg.Outage.MaxOnBatterySeconds != nil {
 		out.MaxOnBattery = time.Duration(*cfg.Outage.MaxOnBatterySeconds) * time.Second
