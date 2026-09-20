@@ -14,6 +14,7 @@ type Config struct {
 	MaxOnBattery         time.Duration
 	CriticalCharge       *float64
 	CriticalRuntime      time.Duration
+	RecoveryEnabled      *bool
 	UtilityStable        time.Duration
 	RecoveryChargeMin    *float64
 	RecoveryRuntimeMin   time.Duration
@@ -98,6 +99,9 @@ func (e *Engine) Step(now time.Time, in Inputs) (Decision, error) {
 
 	case state.WaitingForAC:
 		if in.UPS.Utility == nut.UtilityOnline {
+			if !recoveryEnabled(e.cfg) {
+				return Decision{Action: ActionNone, Reason: "automatic recovery disabled"}, nil
+			}
 			e.onlineSince = now
 			e.st.PowerState = state.RecoveryWait
 			return Decision{Changed: true, Action: ActionNone, Reason: "utility restored; recovery gates pending"}, nil
@@ -108,6 +112,11 @@ func (e *Engine) Step(now time.Time, in Inputs) (Decision, error) {
 		return e.stepRecoveryWait(now, in)
 
 	case state.RecoveryStarted:
+		if !recoveryEnabled(e.cfg) {
+			e.st.RecoveryStarted = false
+			e.st.PowerState = state.WaitingForAC
+			return Decision{Changed: true, Action: ActionStopRecovery, Reason: "automatic recovery disabled"}, nil
+		}
 		if unsafeUPS(in.UPS) {
 			e.onlineSince = time.Time{}
 			e.st.PowerState = state.OnBattery
@@ -117,6 +126,11 @@ func (e *Engine) Step(now time.Time, in Inputs) (Decision, error) {
 		return Decision{Changed: true, Action: ActionStartRestore, Reason: "recovery commit durable"}, nil
 
 	case state.RestoreHosts:
+		if !recoveryEnabled(e.cfg) {
+			e.st.RecoveryStarted = false
+			e.st.PowerState = state.WaitingForAC
+			return Decision{Changed: true, Action: ActionStopRecovery, Reason: "automatic recovery disabled"}, nil
+		}
 		if unsafeUPS(in.UPS) {
 			e.onlineSince = time.Time{}
 			e.st.PowerState = state.OnBattery
@@ -156,6 +170,11 @@ func (e *Engine) reconcileBoot(now time.Time, in Inputs) (Decision, error) {
 	}
 
 	if e.st.RecoveryStarted {
+		if !recoveryEnabled(e.cfg) {
+			e.st.RecoveryStarted = false
+			e.st.PowerState = state.WaitingForAC
+			return Decision{Changed: true, Action: ActionStopRecovery, Reason: "automatic recovery disabled during boot reconciliation"}, nil
+		}
 		if in.UPS.Utility == nut.UtilityOnBattery || in.UPS.LowBattery || in.UPS.FSD {
 			e.st.PowerState = state.OnBattery
 			return Decision{Changed: true, Action: ActionStopRecovery, Reason: "booted into unsafe power after recovery started"}, nil
@@ -166,6 +185,10 @@ func (e *Engine) reconcileBoot(now time.Time, in Inputs) (Decision, error) {
 
 	if e.st.ShutdownCommitted {
 		if in.UPS.Utility == nut.UtilityOnline {
+			if !recoveryEnabled(e.cfg) {
+				e.st.PowerState = state.WaitingForAC
+				return Decision{Changed: e.resumeState != state.WaitingForAC, Action: ActionNone, Reason: "committed shutdown found; automatic recovery disabled"}, nil
+			}
 			e.onlineSince = now
 			e.st.PowerState = state.RecoveryWait
 			return Decision{Changed: true, Action: ActionNone, Reason: "committed shutdown found; utility online; wait recovery gates"}, nil
@@ -239,6 +262,11 @@ func (e *Engine) commitShutdown(reason string) Decision {
 }
 
 func (e *Engine) stepRecoveryWait(now time.Time, in Inputs) (Decision, error) {
+	if !recoveryEnabled(e.cfg) {
+		e.onlineSince = time.Time{}
+		e.st.PowerState = state.WaitingForAC
+		return Decision{Changed: true, Action: ActionNone, Reason: "automatic recovery disabled"}, nil
+	}
 	if in.UPS.Utility != nut.UtilityOnline || in.UPS.LowBattery || in.UPS.FSD {
 		e.onlineSince = time.Time{}
 		if in.UPS.Utility == nut.UtilityOnBattery || in.UPS.LowBattery || in.UPS.FSD {
@@ -266,6 +294,10 @@ func (e *Engine) stepRecoveryWait(now time.Time, in Inputs) (Decision, error) {
 	e.st.RecoveryStarted = true
 	e.st.PowerState = state.RecoveryStarted
 	return Decision{Changed: true, Action: ActionCommitRecovery, Reason: "all recovery gates satisfied"}, nil
+}
+
+func recoveryEnabled(cfg Config) bool {
+	return cfg.RecoveryEnabled == nil || *cfg.RecoveryEnabled
 }
 
 func rechargeGate(cfg Config, st nut.Status, stableFor time.Duration) bool {
