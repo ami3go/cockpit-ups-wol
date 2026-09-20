@@ -33,7 +33,8 @@ resolve_profile_inputs(){
 }
 
 strip_example_inventory(){
-  local cfg="$1" tmp="${cfg}.inventory.tmp"
+  local cfg="$1"
+  local tmp="${cfg}.inventory.tmp"
   awk '
     /^network_dependencies:/ {
       print "network_dependencies: []"
