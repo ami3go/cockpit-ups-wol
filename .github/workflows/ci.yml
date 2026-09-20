@@ -15,7 +15,7 @@ jobs:
       run:
         working-directory: agent
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.23.x'
@@ -43,7 +43,7 @@ jobs:
   architecture-smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.23.x'
@@ -68,7 +68,7 @@ jobs:
   installer:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Bash syntax
         run: bash -n install.sh scripts/install/common.sh scripts/install/nut.sh scripts/install/discovery.sh scripts/install/network.sh scripts/install/configuration.sh scripts/install/tui.sh scripts/install/validate.sh scripts/install/cockpit.sh scripts/install/transaction.sh scripts/install/recover-interrupted-install.sh scripts/install/distros/*.sh scripts/test/installer-unit.sh scripts/test/install-e2e.sh scripts/test/hardware-preflight.sh
       - name: Installer backend unit tests
@@ -92,7 +92,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.23.x'
