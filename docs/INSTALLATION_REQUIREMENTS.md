@@ -1,6 +1,6 @@
 # cockpit-ups-wol — Installation Requirements
 
-**Requirements version:** 0.3  
+**Requirements version:** 0.4  
 **Status:** Canonical v0.1 installer baseline
 
 ## 1. Single entry point
@@ -46,9 +46,10 @@ git
 make
 compiler
 dialog/whiptail
+nftables
 ```
 
-Normal release installation uses prebuilt project artifacts.
+Normal release installation uses prebuilt project artifacts. `dialog`/`whiptail` and nftables are installed only when selected installer features require them.
 
 ## 4. Supported platforms
 
@@ -138,6 +139,12 @@ cockpit-ups-wol-agent.service
 cockpit-ups-wol-health.timer
 ```
 
+Restricted NUT mode additionally installs/enables:
+
+```text
+cockpit-ups-wol-firewall.service
+```
+
 Exact NUT unit names vary by distribution and SHALL be detected rather than globally hard-coded.
 
 Every required selected unit must be enabled for reboot/autostart.
@@ -158,7 +165,7 @@ Dependency unavailability (network, USB, NUT) should use retry/backoff rather th
 
 `--tui` uses `dialog`, with `whiptail` fallback where practical.
 
-The TUI should cover:
+The TUI SHALL cover:
 
 ```text
 system summary
@@ -178,6 +185,10 @@ health/probation result
 final report
 ```
 
+The TUI uses the same transaction/backend functions as default and silent installation. It SHALL NOT maintain a separate configuration path.
+
+First-install TUI SHALL NOT offer immediate `armed` mode. The new installation starts in `dry-run`, `monitor`, or `maintenance`; arming occurs only after real devices and physical topology have been validated.
+
 ## 10. Silent mode
 
 `--silent`:
@@ -194,15 +205,15 @@ Ambiguous UPS selection requires explicit CLI parameters.
 
 The installer SHOULD use supported NUT discovery mechanisms where available.
 
-If exactly one suitable device is found, interactive/TUI may propose it.
+If exactly one suitable device is found, interactive/TUI may propose it and silent mode may use it when the discovery result is unambiguous.
 
-If ambiguous:
+If zero or multiple suitable local devices are found:
 
-- interactive asks
-- TUI lists choices
-- silent mode requires explicit selection
+- interactive asks for an explicit selection/driver/port
+- TUI lists choices where discovery provides them
+- silent mode requires explicit `--ups-driver` and `--ups-port`
 
-Supported options SHOULD include:
+Supported options include:
 
 ```text
 --ups-name
@@ -211,6 +222,8 @@ Supported options SHOULD include:
 ```
 
 Default UPS name: `ups`.
+
+The exact driver/port selected for NUT SHALL also be written into the canonical project configuration; the two configurations must not diverge.
 
 ## 12. NUT profiles
 
@@ -273,7 +286,9 @@ Optional:
 restricted
 ```
 
-Restricted mode may use distro-appropriate nftables/ufw/firewalld integration but SHALL not destructively replace unknown firewall rules.
+Restricted mode SHALL use additive project-owned firewall state and SHALL not flush or replace unknown administrator firewall rules.
+
+v0.1 uses a dedicated nftables table for NUT TCP/3493. Removing/rolling back the project firewall state deletes only that project-owned table/service.
 
 If IPv6 listening is enabled, restrictions must cover IPv6 too; IPv4-only protection cannot leave an unintentionally open IPv6 service.
 
@@ -331,7 +346,7 @@ utility stable period    120 s
 network wait             300 s
 ```
 
-CLI overrides SHOULD include:
+CLI overrides include:
 
 ```text
 --recovery-charge
@@ -366,6 +381,19 @@ config_version: 1
 ```
 
 Unknown newer schemas are never overwritten.
+
+### Fresh-install inventory safety
+
+The repository example configuration may contain illustrative hosts/dependencies, but a fresh **live** installation SHALL NOT copy those targets into the active appliance configuration.
+
+Fresh generated configuration starts with:
+
+```yaml
+network_dependencies: []
+hosts: []
+```
+
+Real devices are enrolled deliberately after installation and validated before arming. This prevents example IP addresses, MAC addresses or shutdown methods from becoming actionable configuration.
 
 ## 21. Existing NUT configuration
 
@@ -502,6 +530,7 @@ This includes, as applicable:
 agent/CLI binaries
 Cockpit bundle
 project-owned systemd units/helpers
+project-owned NUT firewall state
 version manifest
 ```
 
@@ -549,6 +578,8 @@ last-known-good exists after probation
 wolctl basic self-test passes
 ```
 
+Restricted NUT mode additionally validates project-owned firewall syntax before activation.
+
 Synology mode also validates:
 
 ```text
@@ -556,64 +587,4 @@ UPS name = ups
 TCP 3493 service configured
 monuser exists
 monitor-only privilege
-```
-
-Physical UPS communication status is reported distinctly from software installation health.
-
-## 32. Non-destructive simulation validation
-
-Installer/release validation SHOULD exercise simulation for:
-
-```text
-on-battery
-low-battery
-power-restored
-communication failure
-battery recovery gate
-network delay
-host restore plan
-config validation rollback
-```
-
-No real shutdown/WoL occurs during installation validation.
-
-## 33. Final report
-
-The final report SHALL include:
-
-```text
-OS / architecture
-installed version
-services enabled/healthy
-NUT profile / UPS
-Synology compatibility
-operating mode (dry-run by default)
-outage/recovery policy
-UPS power-cycle capability classification
-controller backed-power confirmation status
-controller auto-power-on confirmation status
-active config revision
-last-known-good revision
-Cockpit address
-installer log path
-warnings blocking armed mode
-```
-
-## 34. Installation acceptance criteria
-
-A release is installation-ready only when a clean supported OS can run unattended installation with required explicit hardware parameters and achieve:
-
-```text
-✓ all dependencies installed
-✓ all selected services auto-start
-✓ agent/health supervision healthy
-✓ NUT configured
-✓ Synology preset available
-✓ config schema validated
-✓ initial config promoted to known-good after probation
-✓ rollback metadata initialized
-✓ default operating mode is dry-run
-✓ 80% recovery default present
-✓ repeated installer execution safe
-✓ reboot returns complete selected service stack automatically
 ```
