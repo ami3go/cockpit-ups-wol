@@ -38,7 +38,7 @@ The original blocking workstreams are complete:
 - Cockpit management UI
 - Synology NUT-secondary software integration
 - single default/silent/TUI installer backend
-- guided TUI
+- guided TUI with system/package/profile/UPS/Synology/security/policy/topology/review/progress/result flow
 - local UPS discovery and explicit driver/port selection
 - trusted-LAN and optional restricted NUT networking
 - additive project-owned nftables policy with IPv4/IPv6 protection
@@ -47,6 +47,8 @@ The original blocking workstreams are complete:
 - amd64/arm64/riscv64 software build/runtime gates
 - reproducible packages and SHA256 checksums
 - hardware acceptance procedure and preflight helper
+
+The final installer reconciliation was tracked as issue #15 and completed after the complete agent/architecture/installer/E2E CI gate passed.
 
 ## 3. Remaining v0.1 release gates
 
