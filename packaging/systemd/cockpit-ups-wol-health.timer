@@ -5,7 +5,6 @@ Description=Periodic cockpit-ups-wol health check
 OnBootSec=60s
 OnUnitActiveSec=60s
 AccuracySec=5s
-Persistent=true
 Unit=cockpit-ups-wol-health.service
 
 [Install]
