@@ -1,15 +1,14 @@
 [Unit]
 Description=cockpit-ups-wol power management agent
-After=network.target
-Wants=network.target
-StartLimitIntervalSec=300s
-StartLimitBurst=5
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=notify
 ExecStart=/usr/libexec/cockpit-ups-wol/cockpit-ups-wol-agent --foreground
-Restart=on-failure
-RestartSec=5s
+Restart=always
+RestartSec=10s
 WatchdogSec=30s
 NotifyAccess=main
 RuntimeDirectory=cockpit-ups-wol
