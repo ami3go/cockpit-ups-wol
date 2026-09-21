@@ -1,0 +1,72 @@
+name: fix-review-shellcheck-warnings
+
+on:
+  push:
+    branches: [fix/review-audit-tail]
+    paths: ['.github/workflows/fix-review-shellcheck-warnings.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/review-audit-tail
+      - name: Fix warning-level ShellCheck findings
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new, count=1):
+              p = Path(path)
+              s = p.read_text()
+              if old not in s:
+                  raise SystemExit(f'missing expected text in {path}: {old!r}')
+              p.write_text(s.replace(old, new, count))
+
+          replace('install.sh',
+                  'platform_detect\nsource "$SELF_DIR/scripts/install/distros/${DISTRO_FAMILY}.sh"',
+                  'platform_detect\n# shellcheck source=/dev/null -- distro family is validated by platform_detect.\nsource "$SELF_DIR/scripts/install/distros/${DISTRO_FAMILY}.sh"')
+
+          replace('scripts/install/common.sh',
+                  'PROJECT_NAME=cockpit-ups-wol; INSTALL_LOG=/var/log/cockpit-ups-wol/install.log; LIBEXEC_DIR=/usr/libexec/cockpit-ups-wol',
+                  'INSTALL_LOG=/var/log/cockpit-ups-wol/install.log; LIBEXEC_DIR=/usr/libexec/cockpit-ups-wol')
+          replace('scripts/install/common.sh',
+                  'ETC_DIR=/etc/cockpit-ups-wol; STATE_DIR=/var/lib/cockpit-ups-wol; BACKUP_BASE=/var/backups/cockpit-ups-wol; SYSTEMD_DIR=/etc/systemd/system',
+                  '# shellcheck disable=SC2034 -- BACKUP_BASE is consumed by sourced transaction.sh.\nETC_DIR=/etc/cockpit-ups-wol; STATE_DIR=/var/lib/cockpit-ups-wol; BACKUP_BASE=/var/backups/cockpit-ups-wol; SYSTEMD_DIR=/etc/systemd/system')
+          replace('scripts/install/common.sh',
+                  'log(){ local m="[$(date -u +\'%Y-%m-%dT%H:%M:%SZ\')] $*"; printf \'%s\\n\' "$m";',
+                  'log(){ local m; m="[$(date -u +\'%Y-%m-%dT%H:%M:%SZ\')] $*"; printf \'%s\\n\' "$m";')
+
+          replace('scripts/install/recover-interrupted-install.sh', '\nPROJECT_NAME=cockpit-ups-wol\n', '\n')
+
+          replace('scripts/install/network.sh',
+                  '  NETWORK_FIREWALL_ACTION=enable\n  log "prepared additive project-owned restricted NUT firewall policy"',
+                  '  # shellcheck disable=SC2034 -- consumed by sourced transaction.sh.\n  NETWORK_FIREWALL_ACTION=enable\n  log "prepared additive project-owned restricted NUT firewall policy"')
+
+          replace('scripts/install/configuration.sh',
+                  '  PROJECT_CONFIG_CREATED=1\n  install -m0600',
+                  '  # shellcheck disable=SC2034 -- consumed by sourced network.sh.\n  PROJECT_CONFIG_CREATED=1\n  install -m0600')
+
+          replace('scripts/install/tui.sh',
+                  '      NUT_ALLOWED_CLIENTS=()\n      NUT_LISTEN_IPV6=0',
+                  '      NUT_ALLOWED_CLIENTS=()\n      # shellcheck disable=SC2034 -- consumed by sourced NUT/configuration modules.\n      NUT_LISTEN_IPV6=0')
+          replace('scripts/install/tui.sh',
+                  '          ACCEPT_TRUSTED_LAN_SYNOLOGY=1',
+                  '          # shellcheck disable=SC2034 -- consumed by sourced configuration.sh.\n          ACCEPT_TRUSTED_LAN_SYNOLOGY=1')
+          PY
+          bash -n install.sh scripts/install/*.sh scripts/test/*.sh
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y --no-install-recommends shellcheck >/dev/null
+          find . -type f -name '*.sh' -not -path './.git/*' -print0 | xargs -0 shellcheck -x -S warning
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add install.sh scripts/install
+          git commit -m 'fix(shell): clear warning-level ShellCheck findings'
+          git push origin HEAD:fix/review-audit-tail
