@@ -18,12 +18,14 @@ func TestBuildPlanIsSanitized(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cfg.NUT.Synology.Enabled = true
+	cfg.NUT.Synology.Password = "unique-plan-secret"
 	b, err := json.Marshal(BuildPlan(cfg))
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(b)
-	for _, forbidden := range []string{"secret", "ssh_key_file", "workstation_ed25519", "password"} {
+	for _, forbidden := range []string{"secret", "unique-plan-secret", "ssh_key_file", "workstation_ed25519", "password"} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("sanitized plan leaked %q: %s", forbidden, text)
 		}

@@ -7,6 +7,7 @@ MODE=default
 CHECK_ONLY=0
 SILENT=0
 SYNOLOGY=0
+ACCEPT_TRUSTED_LAN_SYNOLOGY=0
 PROFILE=local-server
 BINARY_DIR="${COCKPIT_UPS_WOL_BINARY_DIR:-}"
 NUT_HOST=""
@@ -26,6 +27,7 @@ PROJECT_CONFIG_CREATED=0
 NETWORK_FIREWALL_ACTION=unchanged
 usage(){ cat <<'USAGE'
 Usage: sudo ./install.sh [--tui|--silent] [--synology]
+                         [--accept-trusted-lan-synology]
                          [--profile local-server|remote-client|existing]
                          [--nut-host HOST] [--ups-name NAME]
                          [--ups-driver DRIVER] [--ups-port PORT]
@@ -42,6 +44,7 @@ while (($#)); do
     --tui) MODE=tui ;;
     --silent) SILENT=1 ;;
     --synology) SYNOLOGY=1 ;;
+    --accept-trusted-lan-synology) ACCEPT_TRUSTED_LAN_SYNOLOGY=1 ;;
     --check) CHECK_ONLY=1 ;;
     --profile) shift; [[ $# -gt 0 ]] || die "--profile requires a value"; PROFILE="$1" ;;
     --nut-host) shift; [[ $# -gt 0 ]] || die "--nut-host requires a value"; NUT_HOST="$1" ;;
