@@ -1,0 +1,257 @@
+name: apply-review-runtime-schema-ci
+
+on:
+  push:
+    branches:
+      - fix/review-runtime-schema-ci-final-3
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/review-runtime-schema-ci-final-3
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.23.x'
+      - name: Apply remaining runtime and schema review fixes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+
+          def replace(path, old, new):
+              p = Path(path)
+              s = p.read_text()
+              if old not in s:
+                  raise SystemExit(f'insertion point not found in {path}')
+              p.write_text(s.replace(old, new, 1))
+
+          replace('agent/internal/orchestrator/controller.go', '''func recoverySettled(hosts []host.Config, states map[string]state.HostState) bool {
+          \tany := false
+          \tfor _, h := range hosts {
+          \t\ths, ok := states[h.ID]
+          \t\tif !ok || !host.EligibleForRestore(h, hs) {
+          \t\t\tcontinue
+          \t\t}
+          \t\tany = true
+          \t\tif hs.RecoveryState != state.RecoveryOnline && hs.RecoveryState != state.RecoveryFailed && hs.RecoveryState != state.RecoveryNotRequired {
+          \t\t\treturn false
+          \t\t}
+          \t}
+          \treturn any || true
+          }
+          ''', '''// recoverySettled reports whether every restore-eligible host has reached a
+          // terminal recovery state. A fleet with no eligible hosts is settled.
+          func recoverySettled(hosts []host.Config, states map[string]state.HostState) bool {
+          \tfor _, h := range hosts {
+          \t\ths, ok := states[h.ID]
+          \t\tif !ok || !host.EligibleForRestore(h, hs) {
+          \t\t\tcontinue
+          \t\t}
+          \t\tswitch hs.RecoveryState {
+          \t\tcase state.RecoveryOnline, state.RecoveryFailed, state.RecoveryNotRequired:
+          \t\t\tcontinue
+          \t\tdefault:
+          \t\t\treturn false
+          \t\t}
+          \t}
+          \treturn true
+          }
+          ''')
+
+          Path('agent/internal/orchestrator/recovery_settled_test.go').write_text('''package orchestrator
+
+          import (
+          \t"testing"
+
+          \t"github.com/ami3go/cockpit-ups-wol/agent/internal/host"
+          \t"github.com/ami3go/cockpit-ups-wol/agent/internal/state"
+          )
+
+          func TestRecoverySettledEmptyFleet(t *testing.T) {
+          \tif !recoverySettled(nil, nil) {
+          \t\tt.Fatal("empty fleet must be settled")
+          \t}
+          }
+
+          func TestRecoverySettledEligibleWaitingHost(t *testing.T) {
+          \thosts := []host.Config{{ID: "node", WakeEnabled: true, RestorePolicy: host.RestoreAlways}}
+          \tstates := map[string]state.HostState{"node": {RecoveryState: state.RecoveryWaiting}}
+          \tif recoverySettled(hosts, states) {
+          \t\tt.Fatal("waiting restore-eligible host must keep recovery unsettled")
+          \t}
+          }
+
+          func TestRecoverySettledTerminalEligibleHosts(t *testing.T) {
+          \thosts := []host.Config{
+          \t\t{ID: "online", WakeEnabled: true, RestorePolicy: host.RestoreAlways},
+          \t\t{ID: "failed", WakeEnabled: true, RestorePolicy: host.RestoreAlways},
+          \t}
+          \tstates := map[string]state.HostState{
+          \t\t"online": {RecoveryState: state.RecoveryOnline},
+          \t\t"failed": {RecoveryState: state.RecoveryFailed},
+          \t}
+          \tif !recoverySettled(hosts, states) {
+          \t\tt.Fatal("terminal restore-eligible hosts must be settled")
+          \t}
+          }
+          ''')
+
+          model = Path('agent/internal/state/model.go')
+          s = model.read_text()
+          start = s.find('type ConfigTransaction struct {')
+          if start == -1:
+              raise SystemExit('ConfigTransaction type not found')
+          end = s.find('\n}\n\ntype State struct {', start)
+          if end == -1:
+              raise SystemExit('ConfigTransaction type end not found')
+          s = s[:start] + 'type State struct {' + s[end + len('\n}\n\ntype State struct {'):]
+          s = s.replace('\n\tConfigTransaction    *ConfigTransaction   `json:"config_transaction,omitempty"`', '')
+          model.write_text(s)
+
+          schema_path = Path('schemas/state.schema.json')
+          schema = json.loads(schema_path.read_text())
+          schema['properties'].pop('config_transaction', None)
+          schema_path.write_text(json.dumps(schema, indent=2) + '\n')
+
+          replace('agent/internal/policy/coordinator.go', 'func (c *Coordinator) State() state.State { return c.engine.State() }\n', '''func (c *Coordinator) State() state.State { return c.engine.State() }
+
+          // ObserveUPS refreshes the in-memory UPS observation carried into the next
+          // durable state generation. It deliberately does not force a write on every
+          // poll; every subsequent durable write therefore records the observation
+          // without adding a five-second flash/disk write loop.
+          func (c *Coordinator) ObserveUPS(observation state.UPSObservation) {
+          \tc.engine.st.LastUPS = &observation
+          }
+          ''')
+
+          replace('agent/internal/app/armed.go', '''\tnow := time.Now()
+          \tsystemSafe, systemHealthReason := systemHealthSafe(opts.SystemHealthStatePath, opts.SystemHealthMaxAge, now)
+          ''', '''\tnow := time.Now()
+          \tlowBattery := upsStatus.LowBattery
+          \tfsd := upsStatus.FSD
+          \tcontroller.Policy.ObserveUPS(state.UPSObservation{
+          \t\tUtility:               string(upsStatus.Utility),
+          \t\tLowBattery:            &lowBattery,
+          \t\tFSD:                   &fsd,
+          \t\tBatteryCharge:         upsStatus.ChargePercent,
+          \t\tBatteryRuntimeSeconds: upsStatus.RuntimeSeconds,
+          \t\tRawStatus:             upsStatus.RawStatus,
+          \t\tObservedAtWallclock:   now.UTC().Format(time.RFC3339),
+          \t})
+          \tsystemSafe, systemHealthReason := systemHealthSafe(opts.SystemHealthStatePath, opts.SystemHealthMaxAge, now)
+          ''')
+
+          Path('agent/internal/state/cmd/schema-fixture').mkdir(parents=True, exist_ok=True)
+          Path('agent/internal/state/cmd/schema-fixture/main.go').write_text('''package main
+
+          import (
+          \t"encoding/json"
+          \t"fmt"
+          \t"os"
+
+          \t"github.com/ami3go/cockpit-ups-wol/agent/internal/state"
+          )
+
+          func main() {
+          \twasOnline := true
+          \tlowBattery := false
+          \tfsd := false
+          \tcharge := 95.0
+          \truntime := int64(1800)
+          \tst := state.State{
+          \t\tStateVersion:         state.Version,
+          \t\tTransactionID:        "schema-fixture",
+          \t\tParentTransactionID:  "previous",
+          \t\tSequence:             1,
+          \t\tPowerState:           state.RecoveryWait,
+          \t\tShutdownCommitted:    true,
+          \t\tRecoveryStarted:      false,
+          \t\tActiveConfigRevision: "fixture-revision",
+          \t\tLastUPS: &state.UPSObservation{
+          \t\t\tUtility:               "ONLINE",
+          \t\t\tLowBattery:            &lowBattery,
+          \t\t\tFSD:                   &fsd,
+          \t\t\tBatteryCharge:         &charge,
+          \t\t\tBatteryRuntimeSeconds: &runtime,
+          \t\t\tRawStatus:             "OL",
+          \t\t\tObservedAtWallclock:   "2026-01-01T00:00:00Z",
+          \t\t},
+          \t\tOutageElapsedSeconds: 42,
+          \t\tHosts: map[string]state.HostState{
+          \t\t\t"node": {
+          \t\t\t\tWasOnline:        &wasOnline,
+          \t\t\t\tShutdownState:    state.ShutdownCompleted,
+          \t\t\t\tRecoveryState:    state.RecoveryOnline,
+          \t\t\t\tShutdownAttempts: 1,
+          \t\t\t\tWakeAttempts:     1,
+          \t\t\t\tLastActionID:     "wake:schema-fixture:node:1",
+          \t\t\t\tLastVerification: "online",
+          \t\t\t},
+          \t\t},
+          \t\tFailedSafeReason: "fixture",
+          \t\tChecksum:         "0000000000000000000000000000000000000000000000000000000000000000",
+          \t}
+          \tenc := json.NewEncoder(os.Stdout)
+          \tenc.SetIndent("", "  ")
+          \tif err := enc.Encode(st); err != nil {
+          \t\tfmt.Fprintln(os.Stderr, err)
+          \t\tos.Exit(1)
+          \t}
+          }
+          ''')
+          PY
+
+          gofmt -w agent/internal/orchestrator/controller.go agent/internal/orchestrator/recovery_settled_test.go agent/internal/state/model.go agent/internal/policy/coordinator.go agent/internal/app/armed.go agent/internal/state/cmd/schema-fixture/main.go
+
+          cd agent
+          go test ./...
+          go test -coverprofile=/tmp/coverage.out ./...
+          total="$(go tool cover -func=/tmp/coverage.out | awk '/^total:/ {gsub(/%/,"",$3); print $3}')"
+          cd ..
+          COVERAGE_TOTAL="$total" python3 - <<'PY'
+          from pathlib import Path
+          import os, math
+          p = Path('.github/workflows/ci.yml')
+          s = p.read_text()
+          floor = max(1, math.floor(float(os.environ['COVERAGE_TOTAL'])) - 1)
+          old = '''      - name: Unit tests
+                  run: go test ./...
+                - name: Race detector
+          '''
+          new = f'''      - name: Unit tests and coverage floor
+                  run: |
+                    go test -coverprofile=coverage.out ./...
+                    total="$(go tool cover -func=coverage.out | awk '/^total:/ {{gsub(/%/,"",$3); print $3}}')"
+                    echo "total coverage: $total% (required: >= {floor}%)"
+                    awk -v total="$total" -v floor="{floor}" 'BEGIN {{ if ((total + 0) < (floor + 0)) exit 1 }}'
+                - name: Schema contract
+                  working-directory: .
+                  run: |
+                    python3 -m pip install --disable-pip-version-check 'check-jsonschema==0.35.0'
+                    check-jsonschema --schemafile schemas/config.schema.json config/config.yaml.example
+                    (cd agent && go run ./internal/state/cmd/schema-fixture) > /tmp/cockpit-ups-wol-state.json
+                    check-jsonschema --schemafile schemas/state.schema.json /tmp/cockpit-ups-wol-state.json
+                - name: Race detector
+          '''
+          if old not in s:
+              raise SystemExit('CI unit-test insertion point not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          print(f'coverage floor set to {floor}% from observed {os.environ["COVERAGE_TOTAL"]}%')
+          PY
+
+          rm -f .github/workflows/apply-review-runtime-schema-ci.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(review): close runtime schema and CI gaps'
+          git push origin HEAD:fix/review-runtime-schema-ci-final-3
