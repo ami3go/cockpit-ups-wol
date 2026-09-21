@@ -9,11 +9,13 @@ export interface Plan{mode:string;ups:{profile:string;target:string;power_cycle_
 export interface ConfigValidation{valid:boolean;plan:Plan}
 async function jsonCommand<T>(args:string[],superuser:'try'|'require'='require'):Promise<T>{const text=await window.cockpit.spawn([ctl,...args],{err:'message',superuser});return JSON.parse(text)as T}
 async function inputCommand<T>(args:string[],input:string,superuser:'try'|'require'='require'):Promise<T>{const process=window.cockpit.spawn([ctl,...args],{err:'message',superuser});process.input(input);const text=await process;return JSON.parse(text)as T}
-export const getHealth=()=>jsonCommand<HealthResponse>(['health']);
-export const getConfigStatus=()=>jsonCommand<ConfigStatus>(['config-status']);
-export const getPlan=()=>jsonCommand<Plan>(['plan']);
+export const getHealth=()=>jsonCommand<HealthResponse>(['health'],'try');
+export const getConfigStatus=()=>jsonCommand<ConfigStatus>(['config-status'],'try');
+export const getPlan=()=>jsonCommand<Plan>(['plan'],'try');
+// Journal output can contain host IDs and operational details, so keep logs privileged.
 export const getLogs=()=>window.cockpit.spawn([ctl,'logs'],{err:'message',superuser:'require'});
+// The canonical config can contain Synology credentials and key paths; keep it privileged.
 export const getConfigText=()=>window.cockpit.spawn([ctl,'config-get'],{err:'message',superuser:'require'});
-export const validateConfig=(text:string)=>inputCommand<ConfigValidation>(['config-validate'],text);
-export const applyConfig=(text:string)=>inputCommand<ConfigStatus>(['config-apply'],text);
-export const rollbackConfig=(id:string)=>jsonCommand<ConfigStatus>(['config-rollback',id]);
+export const validateConfig=(text:string)=>inputCommand<ConfigValidation>(['config-validate'],text,'try');
+export const applyConfig=(text:string)=>inputCommand<ConfigStatus>(['config-apply'],text,'require');
+export const rollbackConfig=(id:string)=>jsonCommand<ConfigStatus>(['config-rollback',id],'require');
