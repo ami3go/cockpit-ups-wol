@@ -8,9 +8,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   agent:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: agent
@@ -24,12 +29,18 @@ jobs:
         run: go mod download
       - name: Unit tests
         run: go test ./...
+      - name: Race detector
+        run: go test -race ./...
       - name: Canonical YAML integration test
         run: go test -tags integrationyaml ./internal/config
       - name: Generated NUT FSD/Synology integration test
         run: go test -tags integrationnut ./internal/nut
       - name: Vet
         run: go vet ./...
+      - name: Staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@v0.5.1
+          staticcheck ./...
       - name: Build amd64
         env: {GOOS: linux, GOARCH: amd64}
         run: go build ./cmd/...
@@ -40,8 +51,26 @@ jobs:
         env: {GOOS: linux, GOARCH: riscv64}
         run: go build ./cmd/...
 
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          # Vulnerability analysis uses a maintained Go line even though the
+          # module retains Go 1.23 as its minimum language/toolchain target.
+          go-version: '1.26.x'
+          cache-dependency-path: agent/go.sum
+      - name: Govulncheck
+        working-directory: agent
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+          govulncheck ./...
+
   architecture-smoke:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -67,10 +96,16 @@ jobs:
 
   installer:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Bash syntax
-        run: bash -n install.sh scripts/install/common.sh scripts/install/nut.sh scripts/install/discovery.sh scripts/install/network.sh scripts/install/configuration.sh scripts/install/tui.sh scripts/install/validate.sh scripts/install/cockpit.sh scripts/install/transaction.sh scripts/install/recover-interrupted-install.sh scripts/install/distros/*.sh scripts/test/installer-unit.sh scripts/test/install-e2e.sh scripts/test/hardware-preflight.sh
+        run: find . -type f -name '*.sh' -not -path './.git/*' -print0 | xargs -0 bash -n
+      - name: ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends shellcheck
+          find . -type f -name '*.sh' -not -path './.git/*' -print0 | xargs -0 shellcheck -x -S warning
       - name: Installer backend unit tests
         run: ./scripts/test/installer-unit.sh
       - name: Installer self-check
@@ -88,7 +123,7 @@ jobs:
           fi
 
   installer-e2e:
-    needs: [agent, installer]
+    needs: [agent, installer, security]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
