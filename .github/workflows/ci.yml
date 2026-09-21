@@ -46,7 +46,8 @@ jobs:
         working-directory: .
         run: |
           python3 -m pip install --disable-pip-version-check 'check-jsonschema==0.35.0'
-          check-jsonschema --schemafile schemas/config.schema.json config/config.yaml.example
+          cp config/config.yaml.example /tmp/cockpit-ups-wol-config.yaml
+          check-jsonschema --schemafile schemas/config.schema.json /tmp/cockpit-ups-wol-config.yaml
           (cd agent && go run ./internal/state/cmd/schema-fixture) > /tmp/cockpit-ups-wol-state.json
           check-jsonschema --schemafile schemas/state.schema.json /tmp/cockpit-ups-wol-state.json
       - name: Race detector
