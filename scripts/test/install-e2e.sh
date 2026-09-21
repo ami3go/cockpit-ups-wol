@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+export COCKPIT_UPS_WOL_TEST_MODE=1
 DIST="$ROOT/.e2e-dist"; BAD="$ROOT/.e2e-bad-dist"; BAD_UI="$ROOT/.e2e-bad-ui"
 cleanup(){ sudo systemctl stop nut-driver.target nut-server.service >/dev/null 2>&1||true; }
 trap cleanup EXIT

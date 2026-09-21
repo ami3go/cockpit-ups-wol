@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "$SELF_DIR/scripts/install/common.sh"
+validate_test_overrides
 MODE=default
 CHECK_ONLY=0
 SILENT=0
