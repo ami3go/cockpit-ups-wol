@@ -143,31 +143,35 @@ func TestRecoveryStabilityTimerResetsAfterReboot(t *testing.T) {
 	}
 }
 
-func TestChargeDropAfterRecoveryCommitDoesNotReverse(t *testing.T) {
+func TestChargeDropAfterLiveRecoveryCommitDoesNotReverse(t *testing.T) {
 	min := 80.0
 	st := baseState()
 	st.PowerState = state.RecoveryStarted
 	st.ShutdownCommitted = true
 	st.RecoveryStarted = true
-	e := New(Config{RecoveryChargeMin: &min}, st)
+
+	// This is a live, already-committed recovery state, not boot reconciliation.
+	// Once recovery has been freshly committed, a small charge fluctuation alone
+	// does not reverse the transaction while utility remains trustworthy.
+	e := &Engine{cfg: Config{RecoveryChargeMin: &min}, st: st}
 	d, err := e.Step(time.Now(), Inputs{UPS: nut.Status{Utility: nut.UtilityOnline, ChargePercent: f64(79)}, NetworkReady: true, HealthSafe: true})
 	if err != nil || d.Action != ActionStartRestore || e.State().PowerState != state.RestoreHosts {
 		t.Fatalf("decision=%+v state=%s err=%v", d, e.State().PowerState, err)
 	}
 }
 
-func TestPowerFailDuringRestoreStopsRecovery(t *testing.T) {
+func TestPowerFailDuringLiveRestoreStopsRecovery(t *testing.T) {
 	st := baseState()
 	st.PowerState = state.RestoreHosts
 	st.ShutdownCommitted = true
 	st.RecoveryStarted = true
-	e := New(Config{}, st)
-	// First call reconciles boot and resumes restore only when the control stack
-	// and network are both explicitly safe.
-	_, _ = e.Step(time.Now(), Inputs{UPS: nut.Status{Utility: nut.UtilityOnline}, NetworkReady: true, HealthSafe: true})
-	d, err := e.Step(time.Now().Add(time.Second), Inputs{UPS: nut.Status{Utility: nut.UtilityOnBattery}, NetworkReady: true, HealthSafe: true})
-	if err != nil || d.Action != ActionStopRecovery || e.State().PowerState != state.OnBattery {
-		t.Fatalf("decision=%+v state=%s err=%v", d, e.State().PowerState, err)
+
+	// Exercise a live restore transaction directly. Rebooted restores are
+	// intentionally handled by boot reconciliation and must re-enter all gates.
+	e := &Engine{cfg: Config{}, st: st}
+	d, err := e.Step(time.Now(), Inputs{UPS: nut.Status{Utility: nut.UtilityOnBattery}, NetworkReady: true, HealthSafe: true})
+	if err != nil || d.Action != ActionStopRecovery || e.State().PowerState != state.OnBattery || e.State().RecoveryStarted {
+		t.Fatalf("decision=%+v state=%+v err=%v", d, e.State(), err)
 	}
 }
 
