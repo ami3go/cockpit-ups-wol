@@ -21,6 +21,9 @@ type Sender struct {
 }
 
 func (s Sender) Wake(ctx context.Context, req Request) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	mac, err := ParseMAC(req.MAC)
 	if err != nil {
 		return fmt.Errorf("parse MAC: %w", err)
