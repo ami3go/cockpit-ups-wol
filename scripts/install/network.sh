@@ -88,6 +88,8 @@ network_configure_security() {
   chmod 0600 "$ETC_DIR/firewall.nft"
   nft -c -f "$ETC_DIR/firewall.nft" || die "generated restricted NUT nftables policy failed validation"
   install_firewall_apply_helper
+  # Consumed by sourced transaction.sh.
+  # shellcheck disable=SC2034
   NETWORK_FIREWALL_ACTION=enable
   log "prepared additive project-owned restricted NUT firewall policy"
 }

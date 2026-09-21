@@ -79,11 +79,15 @@ tui_wizard(){
       ((${#NUT_ALLOWED_CLIENTS[@]} > 0)) || { tui_msg 'Input required' 'Restricted mode requires at least one client CIDR.'; exit 1; }
     else
       NUT_ALLOWED_CLIENTS=()
+      # Consumed by sourced NUT/configuration modules.
+      # shellcheck disable=SC2034
       NUT_LISTEN_IPV6=0
       if ((SYNOLOGY)); then
         if tui_yesno 'Synology trusted-LAN exposure' 'Synology DSM compatibility uses fixed monitor credentials (monuser/secret). Trusted-LAN mode exposes those monitor-only credentials to any host that can reach NUT TCP 3493.
 
 Continue only if this LAN is intentionally trusted. Restricted mode is recommended.'; then
+          # Consumed by sourced configuration.sh.
+          # shellcheck disable=SC2034
           ACCEPT_TRUSTED_LAN_SYNOLOGY=1
         else
           tui_msg 'Restricted mode recommended' 'Restart the installer and select restricted NUT network security, then enter the Synology/client CIDRs that may access TCP 3493.'

@@ -72,6 +72,8 @@ case "$PROFILE" in
   *) die "invalid profile: $PROFILE" ;;
 esac
 platform_detect
+# Distro family is validated by platform_detect.
+# shellcheck source=/dev/null
 source "$SELF_DIR/scripts/install/distros/${DISTRO_FAMILY}.sh"
 source "$SELF_DIR/scripts/install/nut.sh"
 source "$SELF_DIR/scripts/install/discovery.sh"

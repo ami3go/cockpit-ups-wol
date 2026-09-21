@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-PROJECT_NAME=cockpit-ups-wol
 LIBEXEC_DIR=/usr/libexec/cockpit-ups-wol
 ETC_DIR=/etc/cockpit-ups-wol
 STATE_DIR=/var/lib/cockpit-ups-wol

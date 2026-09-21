@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+# Fixture globals below are intentionally consumed by sourced installer modules.
+# shellcheck disable=SC2034
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 SELF_DIR="$ROOT"
 source "$ROOT/scripts/install/common.sh"
