@@ -89,34 +89,51 @@ func TestRecoveryNetworkWaitExpiresIntoFailedSafe(t *testing.T) {
 	}
 }
 
-func TestRestorePausesWhenNetworkDropsAndResumesWhenReady(t *testing.T) {
+func TestRestoreReentersGatesAfterBootAndPausesWhenNetworkDrops(t *testing.T) {
 	now := time.Unix(60_000, 0)
+	charge := 100.0
+	minCharge := 80.0
 	st := baseState()
 	st.PowerState = state.RestoreHosts
 	st.ShutdownCommitted = true
 	st.RecoveryStarted = true
-	e := New(Config{RecoveryNetworkWait: time.Minute}, st)
+	e := New(Config{
+		UtilityStable:       time.Second,
+		RecoveryChargeMin:   &minCharge,
+		RecoveryNetworkWait: time.Minute,
+	}, st)
 
-	// First call is BOOT_RECONCILE. Network unavailable must not emit restore.
-	d, err := e.Step(now, Inputs{UPS: nut.Status{Utility: nut.UtilityOnline}, NetworkReady: false, HealthSafe: true})
+	// A reboot invalidates the old recovery permission. Even with utility
+	// online, boot reconciliation must return behind every recovery gate.
+	d, err := e.Step(now, Inputs{UPS: nut.Status{Utility: nut.UtilityOnline, ChargePercent: &charge}, NetworkReady: false, HealthSafe: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Action == ActionStartRestore || e.State().PowerState != state.RecoveryStarted {
-		t.Fatalf("restore was not paused at boot: decision=%+v state=%s", d, e.State().PowerState)
+	if d.Action != ActionNone || e.State().PowerState != state.RecoveryWait || e.State().RecoveryStarted {
+		t.Fatalf("restore did not re-enter gates at boot: decision=%+v state=%+v", d, e.State())
 	}
 
-	d, err = e.Step(now.Add(time.Second), Inputs{UPS: nut.Status{Utility: nut.UtilityOnline}, NetworkReady: true, HealthSafe: true})
+	// After a fresh stable-utility interval, recharge gate, network readiness,
+	// and health observation, recovery may be committed again.
+	d, err = e.Step(now.Add(time.Second), Inputs{UPS: nut.Status{Utility: nut.UtilityOnline, ChargePercent: &charge}, NetworkReady: true, HealthSafe: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Action != ActionCommitRecovery || e.State().PowerState != state.RecoveryStarted {
+		t.Fatalf("recovery did not recommit after gates passed: decision=%+v state=%s", d, e.State().PowerState)
+	}
+
+	d, err = e.Step(now.Add(2*time.Second), Inputs{UPS: nut.Status{Utility: nut.UtilityOnline, ChargePercent: &charge}, NetworkReady: true, HealthSafe: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if d.Action != ActionStartRestore || e.State().PowerState != state.RestoreHosts {
-		t.Fatalf("restore did not resume after network recovery: decision=%+v state=%s", d, e.State().PowerState)
+		t.Fatalf("restore did not start after durable recovery commit: decision=%+v state=%s", d, e.State().PowerState)
 	}
 
 	// Drop the network after host restoration has begun. Policy must move behind
 	// the start gate so the orchestrator cannot issue another WoL on this tick.
-	d, err = e.Step(now.Add(2*time.Second), Inputs{UPS: nut.Status{Utility: nut.UtilityOnline}, NetworkReady: false, HealthSafe: true})
+	d, err = e.Step(now.Add(3*time.Second), Inputs{UPS: nut.Status{Utility: nut.UtilityOnline, ChargePercent: &charge}, NetworkReady: false, HealthSafe: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,8 +148,10 @@ func TestCriticalHealthFailureAfterRecoveryCommitFailsSafe(t *testing.T) {
 	st.PowerState = state.RecoveryStarted
 	st.ShutdownCommitted = true
 	st.RecoveryStarted = true
-	e := New(Config{}, st)
 
+	// Exercise the already-running committed-recovery state directly. Boot
+	// reconciliation is tested separately and intentionally re-enters the gates.
+	e := &Engine{cfg: Config{}, st: st}
 	d, err := e.Step(now, Inputs{UPS: nut.Status{Utility: nut.UtilityOnline}, NetworkReady: true, HealthSafe: false})
 	if err != nil {
 		t.Fatal(err)
