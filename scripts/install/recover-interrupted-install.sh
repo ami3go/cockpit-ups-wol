@@ -81,6 +81,7 @@ for p in \
   /usr/local/sbin/wolctl \
   "$COCKPIT_UI_DIR" \
   "$SYSTEMD_DIR/cockpit-ups-wol-agent.service" \
+  "$SYSTEMD_DIR/cockpit-ups-wol-agent.service.d" \
   "$SYSTEMD_DIR/cockpit-ups-wol-health.service" \
   "$SYSTEMD_DIR/cockpit-ups-wol-health.timer" \
   "$SYSTEMD_DIR/cockpit-ups-wol-firewall.service" \

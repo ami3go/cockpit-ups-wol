@@ -50,12 +50,36 @@ prebuilt_bundle_available(){ local n; for n in cockpit-ups-wol-agent cockpit-ups
 build_from_source(){ command -v go>/dev/null||return 1; log "using development source-build fallback"; local n; for n in cockpit-ups-wol-agent cockpit-ups-wolctl cockpit-ups-wol-health wolctl; do (cd "$SELF_DIR/agent"&&CGO_ENABLED=0 GOOS=linux GOARCH="$TARGET_ARCH" go build -o "$LIBEXEC_DIR/$n" "./cmd/$n"); done; }
 install_project_binaries(){ local n src; if prebuilt_bundle_available; then for n in cockpit-ups-wol-agent cockpit-ups-wolctl cockpit-ups-wol-health wolctl; do src="$(find_prebuilt "$n")"; install -m0755 "$src" "$LIBEXEC_DIR/$n"; done; else build_from_source||die "no complete prebuilt binary bundle and Go fallback unavailable"; fi; ln -sfn "$LIBEXEC_DIR/cockpit-ups-wolctl" /usr/local/sbin/cockpit-ups-wolctl; ln -sfn "$LIBEXEC_DIR/wolctl" /usr/local/sbin/wolctl; }
 install_project_config(){ :; }
+nut_runtime_group(){
+  local group=""
+  if [[ -d /run/nut ]]; then
+    group="$(stat -c %G /run/nut 2>/dev/null || true)"
+    [[ "$group" != UNKNOWN ]] || group=""
+  fi
+  if [[ -z "$group" ]] && id nut >/dev/null 2>&1; then
+    group="$(id -gn nut)"
+  fi
+  if [[ -z "$group" ]] && getent group nut >/dev/null 2>&1; then
+    group=nut
+  fi
+  [[ -n "$group" && "$group" =~ ^[A-Za-z0-9_.-]+$ ]] || die "cannot determine NUT runtime group for upsmon PID access"
+  printf '%s\n' "$group"
+}
+install_nut_runtime_group_dropin(){
+  local group dropin_dir="$SYSTEMD_DIR/cockpit-ups-wol-agent.service.d"
+  group="$(nut_runtime_group)"
+  install -d -m0755 "$dropin_dir"
+  printf '[Service]\nSupplementaryGroups=%s\n' "$group" >"$dropin_dir/10-nut-runtime-group.conf"
+  chmod 0644 "$dropin_dir/10-nut-runtime-group.conf"
+  log "agent NUT runtime group: $group"
+}
 install_systemd_units(){
   install -m0644 "$SELF_DIR/packaging/systemd/cockpit-ups-wol-agent.service" "$SYSTEMD_DIR/"
   install -m0644 "$SELF_DIR/packaging/systemd/cockpit-ups-wol-health.service" "$SYSTEMD_DIR/"
   install -m0644 "$SELF_DIR/packaging/systemd/cockpit-ups-wol-health.timer" "$SYSTEMD_DIR/"
   install -m0644 "$SELF_DIR/packaging/systemd/cockpit-ups-wol-firewall.service" "$SYSTEMD_DIR/"
   install -m0644 "$SELF_DIR/packaging/systemd/cockpit-ups-wol-install-recover.service" "$SYSTEMD_DIR/"
+  install_nut_runtime_group_dropin
 }
 unit_exists(){ systemctl list-unit-files "$1" --no-legend 2>/dev/null|grep -q "^$1"; }; enable_if_exists(){ unit_exists "$1"&&systemctl enable --now "$1"; }
 mark_initial_known_good(){ log "recording probation-tested configuration as known-good"; "$LIBEXEC_DIR/cockpit-ups-wolctl" --config "$ETC_DIR/config.yaml" --history-dir "$STATE_DIR/config-history" config-bootstrap >/dev/null; }

@@ -3,7 +3,7 @@ set -Eeuo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 export COCKPIT_UPS_WOL_TEST_MODE=1
 DIST="$ROOT/.e2e-dist"; BAD="$ROOT/.e2e-bad-dist"; BAD_UI="$ROOT/.e2e-bad-ui"
-cleanup(){ sudo systemctl stop nut-driver.target nut-server.service >/dev/null 2>&1||true; }
+cleanup(){ [[ -z "${FSD_VICTIM:-}" ]] || kill "$FSD_VICTIM" >/dev/null 2>&1 || true; sudo systemctl stop nut-driver.target nut-server.service >/dev/null 2>&1||true; }
 trap cleanup EXIT
 rm -rf "$DIST" "$BAD" "$BAD_UI"; mkdir -p "$DIST" "$BAD" "$BAD_UI"
 for n in cockpit-ups-wol-agent cockpit-ups-wolctl cockpit-ups-wol-health wolctl; do (cd "$ROOT/agent"&&CGO_ENABLED=0 go build -o "$DIST/$n" "./cmd/$n"); done
@@ -51,6 +51,30 @@ printf '%s\n' "$SYSTEMD_SECURITY_REPORT"
 SYSTEMD_EXPOSURE="$(sed -nE 's/.*Overall exposure level.*: ([0-9]+([.][0-9]+)?).*/\1/p' <<<"$SYSTEMD_SECURITY_REPORT" | tail -n 1)"
 [[ -n "$SYSTEMD_EXPOSURE" ]] || { echo 'unable to parse systemd exposure score' >&2; exit 1; }
 awk -v score="$SYSTEMD_EXPOSURE" 'BEGIN { exit !((score + 0) <= 3.5) }' || { echo "systemd exposure score $SYSTEMD_EXPOSURE exceeds maximum 3.5" >&2; exit 1; }
+NUT_GROUP="$(stat -c %G /run/nut)"
+[[ -n "$NUT_GROUP" && "$NUT_GROUP" != UNKNOWN ]]
+AGENT_GROUPS="$(systemctl show -P SupplementaryGroups cockpit-ups-wol-agent.service)"
+case " $AGENT_GROUPS " in *" $NUT_GROUP "*) ;; *) echo "agent missing NUT supplementary group $NUT_GROUP" >&2; exit 1 ;; esac
+UPSMON_BIN="$(command -v upsmon || true)"
+[[ -x "$UPSMON_BIN" ]] || UPSMON_BIN=/lib/nut/upsmon
+[[ -x "$UPSMON_BIN" ]] || { echo 'upsmon binary not found' >&2; exit 1; }
+sleep 300 & FSD_VICTIM=$!
+printf '%s\n' "$FSD_VICTIM" | sudo tee /run/nut/upsmon.pid >/dev/null
+sudo chown nut:"$NUT_GROUP" /run/nut/upsmon.pid
+sudo chmod 0644 /run/nut/upsmon.pid
+props=()
+for prop in CapabilityBoundingSet SupplementaryGroups NoNewPrivileges ProtectSystem ProtectHome; do
+  value="$(systemctl show -P "$prop" cockpit-ups-wol-agent.service)"
+  [[ -n "$value" ]] && props+=(-p "$prop=$value")
+done
+sudo systemd-run --quiet --wait --pipe --collect --unit=cockpit-ups-wol-fsd-sandbox-test "${props[@]}" "$UPSMON_BIN" -c fsd
+sleep 0.2
+if kill -0 "$FSD_VICTIM" 2>/dev/null; then
+  echo 'agent sandbox cannot deliver upsmon FSD signal through /run/nut' >&2
+  exit 1
+fi
+wait "$FSD_VICTIM" 2>/dev/null || true
+FSD_VICTIM=""
 sudo systemctl is-enabled --quiet cockpit-ups-wol-health.timer
 sudo "$DIST/cockpit-ups-wolctl" --socket /run/cockpit-ups-wol/agent.sock health >/dev/null
 test -s /usr/share/cockpit/cockpit-ups-wol/manifest.json

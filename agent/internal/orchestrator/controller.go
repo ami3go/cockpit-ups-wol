@@ -26,7 +26,10 @@ type RecoveryRunner interface {
 	RunNext(context.Context, state.State, []host.Config) (state.State, string, error)
 }
 
-const maxDirectShutdownAttempts = 3
+const (
+	maxDirectShutdownAttempts = 3
+	maxNUTFSDShutdownAttempts = 6
+)
 
 var (
 	errDirectShutdownRetryPending = errors.New("direct shutdown retry pending")
@@ -46,6 +49,9 @@ type Controller struct {
 	lastRecoveryWakeAt       time.Time
 	lastRecoveryWakeHostID   string
 	resumeWakeDelayEvaluated bool
+
+	nutFSDTransactionID string
+	nutFSDNextAttempt   time.Time
 }
 
 func (c *Controller) Tick(ctx context.Context, now time.Time, in policy.Inputs) (policy.Decision, error) {
@@ -73,7 +79,7 @@ func (c *Controller) Tick(ctx context.Context, now time.Time, in policy.Inputs) 
 		if _, err := c.Policy.Step(now, in); err != nil {
 			return policy.Decision{}, err
 		}
-		if err := c.executeShutdown(ctx); err != nil {
+		if err := c.executeShutdown(ctx, now); err != nil {
 			return decision, err
 		}
 	case policy.ActionStartRestore:
@@ -93,7 +99,7 @@ func (c *Controller) Tick(ctx context.Context, now time.Time, in policy.Inputs) 
 		return decision, nil
 	}
 	if c.Policy.State().PowerState == state.ShutdownInProgress && decision.Action == policy.ActionNone {
-		if err := c.executeShutdown(ctx); err != nil {
+		if err := c.executeShutdown(ctx, now); err != nil {
 			return decision, err
 		}
 	}
@@ -177,7 +183,7 @@ func (c *Controller) snapshotHosts(ctx context.Context, offlineKnown bool) error
 	return nil
 }
 
-func (c *Controller) executeShutdown(ctx context.Context) error {
+func (c *Controller) executeShutdown(ctx context.Context, now time.Time) error {
 	if c.Probe == nil || c.Shutdown == nil {
 		return errors.New("shutdown dependencies are required")
 	}
@@ -207,13 +213,26 @@ func (c *Controller) executeShutdown(ctx context.Context) error {
 		if err := c.prepareNUTGroup(ctx, plan.NUTGroup, byID); err != nil {
 			return err
 		}
+		attempts := c.maxNUTAttempts(plan.NUTGroup)
+		if attempts >= maxNUTFSDShutdownAttempts {
+			return c.enterNUTGroupFailedSafe(plan.NUTGroup, fmt.Sprintf("NUT FSD exhausted %d attempts; native upsmon low-battery shutdown remains the fallback", maxNUTFSDShutdownAttempts))
+		}
+		tx := c.Policy.State().TransactionID
+		if !c.shouldAttemptNUTFSD(now, tx) {
+			return nil
+		}
+		if err := c.markNUTRequested(plan.NUTGroup); err != nil {
+			return fmt.Errorf("persist NUT FSD request state: %w", err)
+		}
 		if err := c.FSD.RequestFSD(ctx, c.Config.NUT.UPSName, c.upsmonPath()); err != nil {
 			persistErr := c.markNUTError(plan.NUTGroup, err)
 			if persistErr != nil {
 				return errors.Join(fmt.Errorf("request FSD: %w", err), fmt.Errorf("persist NUT FSD failure state: %w", persistErr))
 			}
-			return fmt.Errorf("request FSD: %w", err)
+			c.scheduleNUTFSDRetry(now, tx, attempts+1)
+			return nil
 		}
+		c.clearNUTFSDRetry(tx)
 		if err := c.markNUTAcknowledged(plan.NUTGroup); err != nil {
 			return fmt.Errorf("persist NUT FSD acknowledgement: %w", err)
 		}
@@ -359,17 +378,82 @@ func (c *Controller) prepareNUTGroup(ctx context.Context, ids []string, byID map
 				if err := c.persistHost(id, hs); err != nil {
 					return err
 				}
-				continue
 			}
+		}
+	}
+	return nil
+}
+
+func (c *Controller) markNUTRequested(ids []string) error {
+	var errs []error
+	for _, id := range ids {
+		hs := c.Policy.State().Hosts[id]
+		if hs.ShutdownState == state.ShutdownCompleted {
+			continue
 		}
 		hs.ShutdownAttempts++
 		hs.ShutdownState = state.ShutdownRequested
 		hs.LastActionID = fmt.Sprintf("fsd:%s:%s:%d", c.Policy.State().TransactionID, id, hs.ShutdownAttempts)
+		hs.LastError = ""
 		if err := c.persistHost(id, hs); err != nil {
-			return err
+			errs = append(errs, fmt.Errorf("persist %s NUT request: %w", id, err))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
+}
+
+func (c *Controller) maxNUTAttempts(ids []string) int {
+	maxAttempts := 0
+	for _, id := range ids {
+		if n := c.Policy.State().Hosts[id].ShutdownAttempts; n > maxAttempts {
+			maxAttempts = n
+		}
+	}
+	return maxAttempts
+}
+
+func (c *Controller) shouldAttemptNUTFSD(now time.Time, transactionID string) bool {
+	if c.nutFSDTransactionID != transactionID {
+		c.nutFSDTransactionID = transactionID
+		c.nutFSDNextAttempt = time.Time{}
+	}
+	return c.nutFSDNextAttempt.IsZero() || !now.Before(c.nutFSDNextAttempt)
+}
+
+func (c *Controller) scheduleNUTFSDRetry(now time.Time, transactionID string, attempt int) {
+	if c.nutFSDTransactionID != transactionID {
+		c.nutFSDTransactionID = transactionID
+	}
+	delay := 5 * time.Second
+	for i := 1; i < attempt && delay < time.Minute; i++ {
+		delay *= 2
+	}
+	if delay > time.Minute {
+		delay = time.Minute
+	}
+	c.nutFSDNextAttempt = now.Add(delay)
+}
+
+func (c *Controller) clearNUTFSDRetry(transactionID string) {
+	c.nutFSDTransactionID = transactionID
+	c.nutFSDNextAttempt = time.Time{}
+}
+
+func (c *Controller) enterNUTGroupFailedSafe(ids []string, reason string) error {
+	st := cloneState(c.Policy.State())
+	for _, id := range ids {
+		hs := st.Hosts[id]
+		if hs.ShutdownState == state.ShutdownCompleted {
+			continue
+		}
+		hs.ShutdownState = state.ShutdownFailed
+		hs.LastError = reason
+		st.Hosts[id] = hs
+	}
+	st.PowerState = state.FailedSafe
+	st.FailedSafeReason = reason
+	_, err := c.Policy.Write(st)
+	return err
 }
 
 func (c *Controller) markNUTAcknowledged(ids []string) error {
