@@ -1,0 +1,36 @@
+name: Current-main gofmt cleanup
+
+on:
+  push:
+    branches: [chore/review-gofmt-current]
+
+permissions:
+  contents: write
+
+jobs:
+  gofmt:
+    if: ${{ !contains(github.event.head_commit.message, '[gofmt]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: chore/review-gofmt-current
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.23.x'
+      - name: Format Go sources
+        run: gofmt -w agent
+      - name: Verify behavior
+        working-directory: agent
+        run: go test ./...
+      - name: Commit formatting only
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add agent
+          git commit -m 'style: gofmt Go sources [gofmt]'
+          git push origin HEAD:chore/review-gofmt-current
