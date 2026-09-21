@@ -85,10 +85,6 @@ func runArmed(ctx context.Context, cfg config.Config, opts Options) error {
 	for _, h := range cfg.Hosts {
 		byID[h.ID] = h
 	}
-	fsdClient := nut.NewClient()
-	if realClient, ok := opts.NUT.(*nut.Client); ok {
-		fsdClient = realClient
-	}
 	recovery := host.RecoveryExecutor{
 		Waker:   armedWaker{hosts: byID, sender: wol.Sender{}, log: opts.Log},
 		Checker: armedRecoveryChecker{hosts: byID, checker: host.StatusChecker{}},
@@ -99,12 +95,13 @@ func runArmed(ctx context.Context, cfg config.Config, opts Options) error {
 		Policy:           coord,
 		Probe:            probe,
 		Shutdown:         host.ShutdownExecutor{},
-		FSD:              fsdClient,
+		FSD:              opts.NUT,
 		Recovery:         recovery,
 		UPSMonConfPath:   opts.UPSMonConfPath,
 		NewTransactionID: newTransactionID,
 	}
 	deps := newDependencyTracker(cfg.Dependencies)
+	controllerFSD := &controllerFSDTracker{}
 
 	serverCtx, cancelServer := context.WithCancel(ctx)
 	defer cancelServer()
@@ -118,7 +115,7 @@ func runArmed(ctx context.Context, cfg config.Config, opts Options) error {
 
 	// Reconcile persisted state once before announcing READY. UNKNOWN NUT state
 	// is safe: policy remains in BOOT_RECONCILE and performs no destructive work.
-	if err := armedPowerTick(ctx, cfg, opts, controller, deps, latestHealth, fsdClient); err != nil {
+	if err := armedPowerTick(ctx, cfg, opts, controller, deps, latestHealth, controllerFSD); err != nil {
 		return err
 	}
 	if err := opts.Ready(); err != nil {
@@ -176,7 +173,7 @@ func runArmed(ctx context.Context, cfg config.Config, opts Options) error {
 				opts.Log.Warn("agent health degraded", "health_state", latestHealth.State)
 			}
 		case <-powerTicker.C:
-			if err := armedPowerTick(ctx, cfg, opts, controller, deps, latestHealth, fsdClient); err != nil {
+			if err := armedPowerTick(ctx, cfg, opts, controller, deps, latestHealth, controllerFSD); err != nil {
 				return err
 			}
 			nonBlockingBeat(beat)
@@ -184,7 +181,7 @@ func runArmed(ctx context.Context, cfg config.Config, opts Options) error {
 	}
 }
 
-func armedPowerTick(ctx context.Context, cfg config.Config, opts Options, controller *orchestrator.Controller, deps *dependencyTracker, latestHealth health.Snapshot, fsdClient *nut.Client) error {
+func armedPowerTick(ctx context.Context, cfg config.Config, opts Options, controller *orchestrator.Controller, deps *dependencyTracker, latestHealth health.Snapshot, fsdTracker *controllerFSDTracker) error {
 	target := nut.Target(cfg.NUT.UPSName, cfg.NUT.Host, cfg.NUT.Port)
 	upsStatus, err := opts.NUT.Query(ctx, target)
 	if err != nil {
@@ -240,15 +237,59 @@ func armedPowerTick(ctx context.Context, cfg config.Config, opts Options, contro
 	// shutdown commit is the intent record; retrying FSD after a daemon restart is
 	// therefore safe and idempotent at the transaction level.
 	st := controller.Policy.State()
-	if st.ShutdownCommitted && st.PowerState == state.WaitingForAC && upsStatus.Utility == nut.UtilityOnBattery && cfg.NUT.Profile != "remote-client" && !hasNUTManagedHosts(cfg.Hosts) {
+	if st.ShutdownCommitted && st.PowerState == state.WaitingForAC && upsStatus.Utility == nut.UtilityOnBattery && cfg.NUT.Profile != "remote-client" && !hasNUTManagedHosts(cfg.Hosts) && fsdTracker.shouldAttempt(now, st.TransactionID) {
 		opts.Log.Info("requesting controller FSD", "transaction_id", st.TransactionID, "ups", cfg.NUT.UPSName)
-		if err := fsdClient.RequestFSD(ctx, cfg.NUT.UPSName, opts.UPSMonConfPath); err != nil {
-			opts.Log.Error("controller FSD request failed", "transaction_id", st.TransactionID, "error", err)
-			return fmt.Errorf("request controller FSD: %w", err)
+		if err := opts.NUT.RequestFSD(ctx, cfg.NUT.UPSName, opts.UPSMonConfPath); err != nil {
+			delay := fsdTracker.markFailure(now, st.TransactionID)
+			opts.Log.Error("controller FSD request failed; retry scheduled", "transaction_id", st.TransactionID, "retry_after", delay, "error", err)
+			return nil
 		}
+		fsdTracker.markSuccess(st.TransactionID)
 		opts.Log.Info("controller FSD requested", "transaction_id", st.TransactionID)
 	}
 	return nil
+}
+
+type controllerFSDTracker struct {
+	transactionID string
+	completed     bool
+	attempts      int
+	nextAttempt   time.Time
+}
+
+func (t *controllerFSDTracker) resetFor(transactionID string) {
+	if t.transactionID == transactionID {
+		return
+	}
+	t.transactionID = transactionID
+	t.completed = false
+	t.attempts = 0
+	t.nextAttempt = time.Time{}
+}
+
+func (t *controllerFSDTracker) shouldAttempt(now time.Time, transactionID string) bool {
+	t.resetFor(transactionID)
+	return !t.completed && (t.nextAttempt.IsZero() || !now.Before(t.nextAttempt))
+}
+
+func (t *controllerFSDTracker) markSuccess(transactionID string) {
+	t.resetFor(transactionID)
+	t.completed = true
+	t.nextAttempt = time.Time{}
+}
+
+func (t *controllerFSDTracker) markFailure(now time.Time, transactionID string) time.Duration {
+	t.resetFor(transactionID)
+	t.attempts++
+	delay := 5 * time.Second
+	for i := 1; i < t.attempts && delay < time.Minute; i++ {
+		delay *= 2
+	}
+	if delay > time.Minute {
+		delay = time.Minute
+	}
+	t.nextAttempt = now.Add(delay)
+	return delay
 }
 
 func hasNUTManagedHosts(hosts []config.HostConfig) bool {

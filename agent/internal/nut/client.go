@@ -2,6 +2,7 @@ package nut
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -69,15 +70,17 @@ func (c *Client) Query(ctx context.Context, target string) (Status, error) {
 	if c.Runner == nil {
 		return Status{Utility: UtilityUnknown}, errors.New("nut runner is nil")
 	}
-	if c.UPSCPath == "" {
-		c.UPSCPath = "upsc"
+	upscPath := c.UPSCPath
+	if upscPath == "" {
+		upscPath = "upsc"
 	}
-	if c.Timeout <= 0 {
-		c.Timeout = 5 * time.Second
+	timeout := c.Timeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
 	}
-	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	out, err := c.Runner.Run(ctx, c.UPSCPath, target)
+	out, err := c.Runner.Run(ctx, upscPath, target)
 	if err != nil {
 		return Status{Utility: UtilityUnknown}, fmt.Errorf("upsc %s failed: %w", target, err)
 	}
@@ -91,7 +94,7 @@ func (c *Client) Query(ctx context.Context, target string) (Status, error) {
 
 func ParseUPSC(data []byte) (Status, error) {
 	vars := make(map[string]string)
-	s := bufio.NewScanner(strings.NewReader(string(data)))
+	s := bufio.NewScanner(bytes.NewReader(data))
 	for s.Scan() {
 		line := strings.TrimSpace(s.Text())
 		if line == "" {

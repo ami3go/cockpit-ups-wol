@@ -18,6 +18,7 @@ type fakeNUT struct {
 }
 
 func (f fakeNUT) Query(context.Context, string) (nut.Status, error) { return f.status, f.err }
+func (f fakeNUT) RequestFSD(context.Context, string, string) error  { return f.err }
 
 func baseConfig(mode string) config.Config {
 	return config.Config{
