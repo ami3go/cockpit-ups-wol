@@ -1,0 +1,33 @@
+name: apply-review-l5-l7
+
+on:
+  push:
+    branches:
+      - fix/review-l5-l7-nut-controller
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/review-l5-l7-nut-controller
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - name: Apply and verify NUT runtime hardening
+        run: |
+          python3 scripts/dev/apply-review-l5-l7.py
+          gofmt -w agent/internal/app/runtime.go agent/internal/app/armed.go agent/internal/app/runtime_test.go agent/internal/app/fsd_tracker_test.go agent/internal/nut/client.go agent/internal/nut/fsd.go agent/internal/nut/client_immutability_test.go
+          (cd agent && go test ./internal/app ./internal/nut)
+          rm -f .github/workflows/apply-review-l5-l7.yml scripts/dev/apply-review-l5-l7.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(runtime): harden injected NUT controller and FSD retries'
+          git push origin HEAD:fix/review-l5-l7-nut-controller
