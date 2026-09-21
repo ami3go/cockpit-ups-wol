@@ -71,6 +71,10 @@ func (e ShutdownExecutor) shutdownSSH(ctx context.Context, h config.HostConfig) 
 	if runner == nil {
 		runner = ExecRunner{}
 	}
+	logger := e.Log
+	if logger == nil {
+		logger = slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	}
 	timeout := time.Duration(h.Shutdown.TimeoutSeconds) * time.Second
 	if timeout <= 0 {
 		timeout = 120 * time.Second
@@ -89,23 +93,17 @@ func (e ShutdownExecutor) shutdownSSH(ctx context.Context, h config.HostConfig) 
 		destination,
 		"sudo", "-n", "/sbin/shutdown", "-h", "now",
 	}
-	if e.Log != nil {
-		e.Log.Info("requesting SSH host shutdown", "host_id", h.ID, "timeout_seconds", int(timeout/time.Second))
-	}
+	logger.Info("requesting SSH host shutdown", "host_id", h.ID, "timeout_seconds", int(timeout/time.Second))
 	out, err := runner.Run(runCtx, "ssh", args...)
 	if err != nil {
-		if e.Log != nil {
-			e.Log.Error("SSH host shutdown failed", "host_id", h.ID, "error", err)
-		}
+		logger.Error("SSH host shutdown failed", "host_id", h.ID, "error", err)
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			return ShutdownResult{}, fmt.Errorf("SSH shutdown failed: %w: %s", err, strings.TrimSpace(string(out)))
 		}
 		return ShutdownResult{}, fmt.Errorf("SSH shutdown failed: %w", err)
 	}
-	if e.Log != nil {
-		e.Log.Info("SSH host shutdown requested", "host_id", h.ID)
-	}
+	logger.Info("SSH host shutdown requested", "host_id", h.ID)
 	return ShutdownResult{Disposition: ShutdownDirectRequested}, nil
 }
 
