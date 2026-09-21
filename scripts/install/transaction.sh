@@ -26,7 +26,7 @@ backup_begin(){
   : >"$CURRENT_BACKUP/absent.list"
   record_unit_states
   local p
-  for p in "$LIBEXEC_DIR" "$ETC_DIR" "$STATE_DIR/config-history" /usr/local/sbin/cockpit-ups-wolctl /usr/local/sbin/wolctl "$COCKPIT_UI_DIR" "$SYSTEMD_DIR/cockpit-ups-wol-agent.service" "$SYSTEMD_DIR/cockpit-ups-wol-health.service" "$SYSTEMD_DIR/cockpit-ups-wol-health.timer" "$SYSTEMD_DIR/cockpit-ups-wol-firewall.service" "$SYSTEMD_DIR/cockpit-ups-wol-install-recover.service" /etc/nut/nut.conf /etc/nut/ups.conf /etc/nut/upsd.conf /etc/nut/upsd.users /etc/nut/upsmon.conf; do
+  for p in "$LIBEXEC_DIR" "$ETC_DIR" "$STATE_DIR/config-history" /usr/local/sbin/cockpit-ups-wolctl /usr/local/sbin/wolctl "$COCKPIT_UI_DIR" "$SYSTEMD_DIR/cockpit-ups-wol-agent.service" "$SYSTEMD_DIR/cockpit-ups-wol-agent.service.d" "$SYSTEMD_DIR/cockpit-ups-wol-health.service" "$SYSTEMD_DIR/cockpit-ups-wol-health.timer" "$SYSTEMD_DIR/cockpit-ups-wol-firewall.service" "$SYSTEMD_DIR/cockpit-ups-wol-install-recover.service" /etc/nut/nut.conf /etc/nut/ups.conf /etc/nut/upsd.conf /etc/nut/upsd.users /etc/nut/upsmon.conf; do
     backup_path_if_exists "$p"
   done
   sync_transaction_dir "$CURRENT_BACKUP"
@@ -80,7 +80,7 @@ rollback_install(){
   systemctl stop cockpit-ups-wol-agent.service >/dev/null 2>&1 || true
   systemctl stop cockpit-ups-wol-firewall.service >/dev/null 2>&1 || true
   local p
-  for p in "$LIBEXEC_DIR" "$ETC_DIR" "$STATE_DIR/config-history" /usr/local/sbin/cockpit-ups-wolctl /usr/local/sbin/wolctl "$COCKPIT_UI_DIR" "$SYSTEMD_DIR/cockpit-ups-wol-agent.service" "$SYSTEMD_DIR/cockpit-ups-wol-health.service" "$SYSTEMD_DIR/cockpit-ups-wol-health.timer" "$SYSTEMD_DIR/cockpit-ups-wol-firewall.service" "$SYSTEMD_DIR/cockpit-ups-wol-install-recover.service" /etc/nut/nut.conf /etc/nut/ups.conf /etc/nut/upsd.conf /etc/nut/upsd.users /etc/nut/upsmon.conf; do
+  for p in "$LIBEXEC_DIR" "$ETC_DIR" "$STATE_DIR/config-history" /usr/local/sbin/cockpit-ups-wolctl /usr/local/sbin/wolctl "$COCKPIT_UI_DIR" "$SYSTEMD_DIR/cockpit-ups-wol-agent.service" "$SYSTEMD_DIR/cockpit-ups-wol-agent.service.d" "$SYSTEMD_DIR/cockpit-ups-wol-health.service" "$SYSTEMD_DIR/cockpit-ups-wol-health.timer" "$SYSTEMD_DIR/cockpit-ups-wol-firewall.service" "$SYSTEMD_DIR/cockpit-ups-wol-install-recover.service" /etc/nut/nut.conf /etc/nut/ups.conf /etc/nut/upsd.conf /etc/nut/upsd.users /etc/nut/upsmon.conf; do
     restore_one "$p"
   done
   systemctl daemon-reload
