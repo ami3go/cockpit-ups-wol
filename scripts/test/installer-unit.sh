@@ -11,6 +11,15 @@ source "$ROOT/scripts/install/configuration.sh"
 fail(){ echo "installer-unit: FAIL: $*" >&2; exit 1; }
 assert_contains(){ local hay="$1" needle="$2"; grep -Fq -- "$needle" <<<"$hay" || fail "missing: $needle"; }
 
+# Test-only environment seams must never affect a production root install
+# unless the caller explicitly opts into controlled test mode.
+if (unset COCKPIT_UPS_WOL_TEST_MODE; COCKPIT_UPS_WOL_PROBATION_SECONDS=1 validate_test_overrides) >/dev/null 2>&1; then
+  fail "test-only override unexpectedly accepted without test mode"
+fi
+if ! (COCKPIT_UPS_WOL_TEST_MODE=1 COCKPIT_UPS_WOL_PROBATION_SECONDS=1 validate_test_overrides) >/dev/null 2>&1; then
+  fail "explicit test mode did not allow test-only override"
+fi
+
 fixture="$(mktemp)"
 trap 'rm -f "$fixture"' EXIT
 cat >"$fixture" <<'EOF'
