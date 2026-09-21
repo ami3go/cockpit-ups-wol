@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
@@ -19,19 +20,23 @@ type NUTQuerier interface {
 }
 
 // Options contains runtime paths and injectable platform hooks. The hooks make
-// startup and watchdog behavior testable without a running systemd instance.
+// startup, logging, and watchdog behavior testable without a running systemd
+// instance.
 type Options struct {
-	SocketPath       string
-	HealthStatePath  string
-	HealthInterval   time.Duration
-	PowerInterval    time.Duration
-	StateDir         string
-	ConfigHistoryDir string
-	UPSMonConfPath   string
-	NUT              NUTQuerier
-	Ready            func() error
-	Stopping         func() error
-	StartWatchdog    func(context.Context) (<-chan error, error)
+	SocketPath            string
+	HealthStatePath       string
+	SystemHealthStatePath string
+	SystemHealthMaxAge    time.Duration
+	HealthInterval        time.Duration
+	PowerInterval         time.Duration
+	StateDir              string
+	ConfigHistoryDir      string
+	UPSMonConfPath        string
+	NUT                   NUTQuerier
+	Log                   *slog.Logger
+	Ready                 func() error
+	Stopping              func() error
+	StartWatchdog         func(context.Context, <-chan struct{}, time.Duration) (<-chan error, error)
 }
 
 func (o *Options) defaults() {
@@ -40,6 +45,12 @@ func (o *Options) defaults() {
 	}
 	if o.HealthStatePath == "" {
 		o.HealthStatePath = "/var/lib/cockpit-ups-wol/health.json"
+	}
+	if o.SystemHealthStatePath == "" {
+		o.SystemHealthStatePath = "/var/lib/cockpit-ups-wol/system-health.json"
+	}
+	if o.SystemHealthMaxAge <= 0 {
+		o.SystemHealthMaxAge = 3 * time.Minute
 	}
 	if o.StateDir == "" {
 		o.StateDir = "/var/lib/cockpit-ups-wol/state"
@@ -55,6 +66,9 @@ func (o *Options) defaults() {
 	}
 	if o.NUT == nil {
 		o.NUT = nut.NewClient()
+	}
+	if o.Log == nil {
+		o.Log = slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	}
 	if o.Ready == nil {
 		o.Ready = systemd.Ready
@@ -116,9 +130,11 @@ func runPassive(ctx context.Context, cfg config.Config, opts Options) error {
 		StatePath:         opts.HealthStatePath,
 		MaxRepairAttempts: cfg.Health.MaxRepairAttempts,
 	}
-	if _, err := supervisor.Run(ctx, false); err != nil {
+	initial, err := supervisor.Run(ctx, false)
+	if err != nil {
 		return fmt.Errorf("initial health check: %w", err)
 	}
+	opts.Log.Info("agent runtime initialized", "mode", cfg.Mode, "health_state", initial.State)
 
 	serverCtx, cancelServer := context.WithCancel(ctx)
 	defer cancelServer()
@@ -137,13 +153,20 @@ func runPassive(ctx context.Context, cfg config.Config, opts Options) error {
 	}
 	defer func() { _ = opts.Stopping() }()
 
-	watchdogCh, err := opts.StartWatchdog(ctx)
+	beat := make(chan struct{}, 1)
+	watchdogCh, err := opts.StartWatchdog(ctx, beat, 20*time.Second)
 	if err != nil {
 		return fmt.Errorf("start systemd watchdog: %w", err)
 	}
+	beat <- struct{}{}
 
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	healthTicker := time.NewTicker(interval)
+	defer healthTicker.Stop()
+	// Passive mode may perform health checks only once per minute; this ticker
+	// proves that the select loop itself is still being scheduled between checks.
+	livenessTicker := time.NewTicker(5 * time.Second)
+	defer livenessTicker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -161,11 +184,26 @@ func runPassive(ctx context.Context, cfg config.Config, opts Options) error {
 			if err != nil {
 				return fmt.Errorf("systemd watchdog: %w", err)
 			}
-		case <-ticker.C:
-			if _, err := supervisor.Run(ctx, cfg.Health.Autofix); err != nil {
+		case <-livenessTicker.C:
+			nonBlockingBeat(beat)
+		case <-healthTicker.C:
+			snap, err := supervisor.Run(ctx, cfg.Health.Autofix)
+			if err != nil {
+				opts.Log.Error("health supervisor run failed", "error", err)
 				return fmt.Errorf("health supervisor: %w", err)
 			}
+			nonBlockingBeat(beat)
+			if snap.State != health.Healthy {
+				opts.Log.Warn("agent health degraded", "health_state", snap.State)
+			}
 		}
+	}
+}
+
+func nonBlockingBeat(ch chan<- struct{}) {
+	select {
+	case ch <- struct{}{}:
+	default:
 	}
 }
 
