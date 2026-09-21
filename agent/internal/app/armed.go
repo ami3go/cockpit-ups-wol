@@ -190,6 +190,17 @@ func armedPowerTick(ctx context.Context, cfg config.Config, opts Options, contro
 	}
 
 	now := time.Now()
+	lowBattery := upsStatus.LowBattery
+	fsd := upsStatus.FSD
+	controller.Policy.ObserveUPS(state.UPSObservation{
+		Utility:               string(upsStatus.Utility),
+		LowBattery:            &lowBattery,
+		FSD:                   &fsd,
+		BatteryCharge:         upsStatus.ChargePercent,
+		BatteryRuntimeSeconds: upsStatus.RuntimeSeconds,
+		RawStatus:             upsStatus.RawStatus,
+		ObservedAtWallclock:   now.UTC().Format(time.RFC3339),
+	})
 	systemSafe, systemHealthReason := systemHealthSafe(opts.SystemHealthStatePath, opts.SystemHealthMaxAge, now)
 	healthSafe := latestHealth.State == health.Healthy && systemSafe
 	networkReady := deps.Ready(ctx)

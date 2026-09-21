@@ -61,12 +61,6 @@ type HostState struct {
 	LastError        string        `json:"last_error,omitempty"`
 }
 
-type ConfigTransaction struct {
-	CandidateRevision string `json:"candidate_revision,omitempty"`
-	Status            string `json:"status,omitempty"`
-	LastKnownGood     string `json:"last_known_good,omitempty"`
-}
-
 type State struct {
 	StateVersion         int             `json:"state_version"`
 	TransactionID        string          `json:"transaction_id"`
@@ -83,7 +77,6 @@ type State struct {
 	// bounded interval so a reboot cannot restart max_on_battery from zero.
 	OutageElapsedSeconds int64                `json:"outage_elapsed_seconds,omitempty"`
 	Hosts                map[string]HostState `json:"hosts"`
-	ConfigTransaction    *ConfigTransaction   `json:"config_transaction,omitempty"`
 	FailedSafeReason     string               `json:"failed_safe_reason,omitempty"`
 	Checksum             string               `json:"checksum,omitempty"`
 }
