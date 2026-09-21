@@ -116,9 +116,9 @@ prune_committed_backups(){
     # defensively even if a non-standard backup name sorts unexpectedly.
     [[ "$entry" == "$CURRENT_BACKUP" ]] && continue
     log "pruning old rollback snapshot: $entry"
-    rm -rf -- "$entry"
+    rm -rf -- "$entry" || { warn "failed to prune $entry (installation already committed)"; continue; }
   done
-  sync_transaction_dir "$BACKUP_BASE"
+  sync_transaction_dir "$BACKUP_BASE" || warn "failed to fsync rollback snapshot directory after committed housekeeping"
 }
 
 backup_commit(){
