@@ -49,15 +49,15 @@ type Decision struct {
 }
 
 type Engine struct {
-	cfg                   Config
-	st                    state.State
-	resumeState           state.PowerState
-	onBatterySince        time.Time
-	onlineSince           time.Time
-	unknownSince          time.Time
-	networkWaitSince      time.Time
-	lastOutageCheckpoint  time.Time
-	onlineConfirmations   int
+	cfg                  Config
+	st                   state.State
+	resumeState          state.PowerState
+	onBatterySince       time.Time
+	onlineSince          time.Time
+	unknownSince         time.Time
+	networkWaitSince     time.Time
+	lastOutageCheckpoint time.Time
+	onlineConfirmations  int
 }
 
 func New(cfg Config, persisted state.State) *Engine {
@@ -134,6 +134,7 @@ func (e *Engine) Step(now time.Time, in Inputs) (Decision, error) {
 		if unsafeUPS(in.UPS) {
 			e.onlineSince = time.Time{}
 			e.networkWaitSince = time.Time{}
+			e.st.RecoveryStarted = false
 			e.st.PowerState = state.OnBattery
 			return Decision{Changed: true, Action: ActionStopRecovery, Reason: "unsafe UPS state after recovery commit"}, nil
 		}
@@ -162,6 +163,7 @@ func (e *Engine) Step(now time.Time, in Inputs) (Decision, error) {
 		if unsafeUPS(in.UPS) {
 			e.onlineSince = time.Time{}
 			e.networkWaitSince = time.Time{}
+			e.st.RecoveryStarted = false
 			e.st.PowerState = state.OnBattery
 			return Decision{Changed: true, Action: ActionStopRecovery, Reason: "power failed during host restoration"}, nil
 		}
@@ -224,19 +226,22 @@ func (e *Engine) reconcileBoot(now time.Time, in Inputs) (Decision, error) {
 			return Decision{Changed: true, Action: ActionStopRecovery, Reason: "automatic recovery disabled during boot reconciliation"}, nil
 		}
 		if in.UPS.Utility == nut.UtilityOnBattery || in.UPS.LowBattery || in.UPS.FSD {
+			e.st.RecoveryStarted = false
 			e.st.PowerState = state.OnBattery
 			return Decision{Changed: true, Action: ActionStopRecovery, Reason: "booted into unsafe power after recovery started"}, nil
 		}
-		if !in.HealthSafe {
-			return e.failSafe("critical control-stack health unsafe while reconciling committed recovery"), nil
-		}
-		if !in.NetworkReady {
-			e.networkWaitSince = now
-			e.st.PowerState = state.RecoveryStarted
-			return Decision{Changed: true, Action: ActionNone, Reason: "committed recovery paused at boot: network not ready"}, nil
-		}
-		e.st.PowerState = state.RestoreHosts
-		return Decision{Changed: true, Action: ActionStartRestore, Reason: "resume committed recovery"}, nil
+
+		// A persisted RecoveryStarted flag records that recovery had been
+		// committed before the interruption; it is not durable permission to
+		// bypass the recovery safety gates after reboot. Re-enter RecoveryWait
+		// and require a fresh stable-utility interval, recharge/runtime gate,
+		// network readiness, and health-safe observation before restoring more
+		// hosts.
+		e.st.RecoveryStarted = false
+		e.onlineSince = now
+		e.networkWaitSince = time.Time{}
+		e.st.PowerState = state.RecoveryWait
+		return Decision{Changed: true, Action: ActionNone, Reason: "resumed recovery re-gated after boot"}, nil
 	}
 
 	if e.st.ShutdownCommitted {
