@@ -67,8 +67,9 @@ func (c *Client) RequestFSD(ctx context.Context, upsName, upsmonConfPath string)
 	if c.Runner == nil {
 		return errors.New("nut runner is nil")
 	}
-	if c.UPSMonPath == "" {
-		c.UPSMonPath = "upsmon"
+	upsmonPath := c.UPSMonPath
+	if upsmonPath == "" {
+		upsmonPath = "upsmon"
 	}
 	timeout := c.Timeout
 	if timeout <= 0 {
@@ -76,7 +77,7 @@ func (c *Client) RequestFSD(ctx context.Context, upsName, upsmonConfPath string)
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	out, err := c.Runner.Run(ctx, c.UPSMonPath, "-c", "fsd")
+	out, err := c.Runner.Run(ctx, upsmonPath, "-c", "fsd")
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
 		if msg == "" {

@@ -19,6 +19,14 @@ type NUTQuerier interface {
 	Query(context.Context, string) (nut.Status, error)
 }
 
+// NUTController covers both status queries and the destructive FSD request.
+// Keeping both operations on the injected dependency prevents tests from
+// silently falling back to a real upsmon process.
+type NUTController interface {
+	NUTQuerier
+	RequestFSD(context.Context, string, string) error
+}
+
 // Options contains runtime paths and injectable platform hooks. The hooks make
 // startup, logging, and watchdog behavior testable without a running systemd
 // instance.
@@ -32,7 +40,7 @@ type Options struct {
 	StateDir              string
 	ConfigHistoryDir      string
 	UPSMonConfPath        string
-	NUT                   NUTQuerier
+	NUT                   NUTController
 	Log                   *slog.Logger
 	Ready                 func() error
 	Stopping              func() error
