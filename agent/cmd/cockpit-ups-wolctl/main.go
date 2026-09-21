@@ -114,10 +114,14 @@ func main() {
 		if fs.NArg() != 2 {
 			fatal(fmt.Errorf("config-activate requires exactly one revision id"))
 		}
+		revisionID := fs.Arg(1)
+		if err := config.ValidateRevisionID(revisionID); err != nil {
+			fatal(err)
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
 		rt := &control.ServiceRuntime{SocketPath: *socketPath}
-		manifest, err := manager.ActivateAndValidate(ctx, fs.Arg(1), rt)
+		manifest, err := manager.ActivateAndValidate(ctx, revisionID, rt)
 		if err != nil {
 			fatal(err)
 		}
@@ -135,10 +139,14 @@ func main() {
 		if fs.NArg() != 2 {
 			fatal(fmt.Errorf("config-rollback requires exactly one revision id"))
 		}
+		revisionID := fs.Arg(1)
+		if err := config.ValidateRevisionID(revisionID); err != nil {
+			fatal(err)
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
 		rt := &control.ServiceRuntime{SocketPath: *socketPath}
-		if err := manager.Rollback(ctx, fs.Arg(1), rt); err != nil {
+		if err := manager.Rollback(ctx, revisionID, rt); err != nil {
 			fatal(err)
 		}
 		status, err := report.ReadConfigStatus(manager)

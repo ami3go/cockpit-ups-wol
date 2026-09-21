@@ -45,6 +45,7 @@ type Manager struct {
 	ActiveConfigPath string
 	Probation        time.Duration
 	HealthInterval   time.Duration
+	RevisionKeep     int
 	Now              func() time.Time
 	Sleep            func(context.Context, time.Duration) error
 }
@@ -55,6 +56,9 @@ func (m *Manager) defaults() {
 	}
 	if m.HealthInterval <= 0 {
 		m.HealthInterval = 5 * time.Second
+	}
+	if m.RevisionKeep <= 0 {
+		m.RevisionKeep = defaultRevisionKeep
 	}
 	if m.Now == nil {
 		m.Now = time.Now
@@ -184,7 +188,10 @@ func (m *Manager) promoteLocked(manifest *Manifest) error {
 	if err := m.writePointer("last-known-good", manifest.RevisionID); err != nil {
 		return err
 	}
-	return m.writePointer("active", manifest.RevisionID)
+	if err := m.writePointer("active", manifest.RevisionID); err != nil {
+		return err
+	}
+	return m.pruneRevisionsLocked(m.RevisionKeep)
 }
 func (m *Manager) rollbackLocked(ctx context.Context, failed Manifest, cause error, r Runtime) error {
 	failed.Status = RevisionFailed
@@ -355,6 +362,9 @@ func (m *Manager) failLocked(manifest Manifest, cause error) error {
 	return cause
 }
 func (m *Manager) writeManifest(manifest Manifest) error {
+	if err := ValidateRevisionID(manifest.RevisionID); err != nil {
+		return err
+	}
 	b, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		return err
@@ -364,6 +374,9 @@ func (m *Manager) writeManifest(manifest Manifest) error {
 }
 func (m *Manager) readManifest(id string) (Manifest, error) {
 	var x Manifest
+	if err := ValidateRevisionID(id); err != nil {
+		return x, err
+	}
 	b, err := os.ReadFile(filepath.Join(m.revisionDir(id), "manifest.json"))
 	if err != nil {
 		return x, err
@@ -372,6 +385,9 @@ func (m *Manager) readManifest(id string) (Manifest, error) {
 	return x, err
 }
 func (m *Manager) writePointer(name, value string) error {
+	if err := ValidateRevisionID(value); err != nil {
+		return fmt.Errorf("write %s pointer: %w", name, err)
+	}
 	return writeAtomic(m.pointerPath(name), []byte(value+"\n"), 0o600)
 }
 func (m *Manager) readPointer(name string) (string, error) {
@@ -382,7 +398,14 @@ func (m *Manager) readPointer(name string) (string, error) {
 		}
 		return "", err
 	}
-	return strings.TrimSpace(string(b)), nil
+	value := strings.TrimSpace(string(b))
+	if value == "" {
+		return "", nil
+	}
+	if err := ValidateRevisionID(value); err != nil {
+		return "", fmt.Errorf("read %s pointer: %w", name, err)
+	}
+	return value, nil
 }
 func (m *Manager) lock() (func(), error) {
 	if err := m.Ensure(); err != nil {
