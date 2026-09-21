@@ -39,7 +39,7 @@ jobs:
                   'INSTALL_LOG=/var/log/cockpit-ups-wol/install.log; LIBEXEC_DIR=/usr/libexec/cockpit-ups-wol')
           replace('scripts/install/common.sh',
                   'ETC_DIR=/etc/cockpit-ups-wol; STATE_DIR=/var/lib/cockpit-ups-wol; BACKUP_BASE=/var/backups/cockpit-ups-wol; SYSTEMD_DIR=/etc/systemd/system',
-                  '# BACKUP_BASE is consumed by sourced transaction.sh.\n# shellcheck disable=SC2034\nETC_DIR=/etc/cockpit-ups-wol; STATE_DIR=/var/lib/cockpit-ups-wol; BACKUP_BASE=/var/backups/cockpit-ups-wol; SYSTEMD_DIR=/etc/systemd/system')
+                  'ETC_DIR=/etc/cockpit-ups-wol; STATE_DIR=/var/lib/cockpit-ups-wol; export BACKUP_BASE=/var/backups/cockpit-ups-wol; SYSTEMD_DIR=/etc/systemd/system')
           replace('scripts/install/common.sh',
                   'log(){ local m="[$(date -u +\'%Y-%m-%dT%H:%M:%SZ\')] $*"; printf \'%s\\n\' "$m";',
                   'log(){ local m; m="[$(date -u +\'%Y-%m-%dT%H:%M:%SZ\')] $*"; printf \'%s\\n\' "$m";')
