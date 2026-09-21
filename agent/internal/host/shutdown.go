@@ -29,8 +29,10 @@ type ShutdownResult struct {
 }
 
 type ShutdownExecutor struct {
-	Runner CommandRunner
-	Log    *slog.Logger
+	Runner           CommandRunner
+	Log              *slog.Logger
+	Progress         func()
+	ProgressInterval time.Duration
 }
 
 func (e ShutdownExecutor) Shutdown(ctx context.Context, h config.HostConfig) (ShutdownResult, error) {
@@ -94,7 +96,7 @@ func (e ShutdownExecutor) shutdownSSH(ctx context.Context, h config.HostConfig) 
 		"sudo", "-n", "/sbin/shutdown", "-h", "now",
 	}
 	logger.Info("requesting SSH host shutdown", "host_id", h.ID, "timeout_seconds", int(timeout/time.Second))
-	out, err := runner.Run(runCtx, "ssh", args...)
+	out, err := e.runWithProgress(runCtx, runner, "ssh", args...)
 	if err != nil {
 		logger.Error("SSH host shutdown failed", "host_id", h.ID, "error", err)
 		var exitErr *exec.ExitError
@@ -105,6 +107,40 @@ func (e ShutdownExecutor) shutdownSSH(ctx context.Context, h config.HostConfig) 
 	}
 	logger.Info("SSH host shutdown requested", "host_id", h.ID)
 	return ShutdownResult{Disposition: ShutdownDirectRequested}, nil
+}
+
+type commandResult struct {
+	out []byte
+	err error
+}
+
+func (e ShutdownExecutor) runWithProgress(ctx context.Context, runner CommandRunner, name string, args ...string) ([]byte, error) {
+	if e.Progress == nil {
+		return runner.Run(ctx, name, args...)
+	}
+	interval := e.ProgressInterval
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	e.Progress()
+	done := make(chan commandResult, 1)
+	go func() {
+		out, err := runner.Run(ctx, name, args...)
+		done <- commandResult{out: out, err: err}
+	}()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case result := <-done:
+			e.Progress()
+			return result.out, result.err
+		case <-ticker.C:
+			e.Progress()
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 }
 
 // ValidateArmedCapabilities rejects configuration features that do not yet have
