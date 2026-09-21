@@ -93,7 +93,10 @@ func (m *Manager) beginLocked(source string, content []byte) (Manifest, error) {
 	}
 	sum := sha256.Sum256(content)
 	hexsum := hex.EncodeToString(sum[:])
-	id := m.uniqueRevisionID(hexsum)
+	id, err := m.uniqueRevisionID(hexsum)
+	if err != nil {
+		return Manifest{}, err
+	}
 	parent, _ := m.readPointer("active")
 	revdir := m.revisionDir(id)
 	if err := os.MkdirAll(revdir, 0o700); err != nil {
@@ -461,16 +464,30 @@ func contentMatches(manifest Manifest, content []byte) bool {
 	sum := sha256.Sum256(content)
 	return strings.EqualFold(manifest.ContentSHA256, hex.EncodeToString(sum[:]))
 }
-func (m *Manager) uniqueRevisionID(contentHash string) string {
-	base := fmt.Sprintf("cfg-%s-%s", m.Now().UTC().Format("20060102T150405Z"), contentHash[:8])
-	id := base
-	for n := 1; ; n++ {
-		if _, err := os.Stat(m.revisionDir(id)); errors.Is(err, os.ErrNotExist) {
-			return id
-		}
-		id = fmt.Sprintf("%s-%d", base, n)
+
+const maxRevisionIDAttempts = 100
+
+func (m *Manager) uniqueRevisionID(contentHash string) (string, error) {
+	if len(contentHash) < 8 {
+		return "", errors.New("content hash is too short to allocate revision id")
 	}
+	base := fmt.Sprintf("cfg-%s-%s", m.Now().UTC().Format("20060102T150405Z"), contentHash[:8])
+	for n := 0; n < maxRevisionIDAttempts; n++ {
+		id := base
+		if n > 0 {
+			id = fmt.Sprintf("%s-%d", base, n)
+		}
+		_, err := os.Stat(m.revisionDir(id))
+		if errors.Is(err, os.ErrNotExist) {
+			return id, nil
+		}
+		if err != nil {
+			return "", fmt.Errorf("check revision id %q: %w", id, err)
+		}
+	}
+	return "", fmt.Errorf("unable to allocate unique revision id after %d attempts", maxRevisionIDAttempts)
 }
+
 func sleepContext(ctx context.Context, d time.Duration) error {
 	timer := time.NewTimer(d)
 	defer timer.Stop()

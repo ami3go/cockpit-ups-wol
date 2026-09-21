@@ -10,7 +10,7 @@ import (
 )
 
 func TestBuildPlanIsSanitized(t *testing.T) {
-	data, err := os.ReadFile("../../../config/config.yaml.example")
+	data, err := os.ReadFile("../config/testdata/config.yaml.example")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestBuildPlanIsSanitized(t *testing.T) {
 }
 
 func TestPlanOrdering(t *testing.T) {
-	data, err := os.ReadFile("../../../config/config.yaml.example")
+	data, err := os.ReadFile("../config/testdata/config.yaml.example")
 	if err != nil {
 		t.Fatal(err)
 	}

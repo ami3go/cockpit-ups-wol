@@ -1,0 +1,120 @@
+config_version: 1
+mode: dry-run
+
+nut:
+  profile: local-server
+  ups_name: ups
+  host: localhost
+  port: 3493
+  driver: usbhid-ups
+  driver_port: auto
+  power_cycle_capability: POWER_CYCLE_UNVERIFIED
+  network:
+    mode: trusted-lan
+    listen_ipv4: true
+    listen_ipv6: false
+    allowed_clients: []
+  synology_compatibility:
+    enabled: false
+    username: monuser
+    password: secret
+  hosts_sync_seconds: 60
+  final_delay_seconds: 15
+
+outage:
+  grace_period_seconds: 120
+  max_on_battery_seconds: null
+  critical_battery_percent: 30
+  critical_runtime_seconds: 600
+  communication_loss_grace_seconds: 30
+
+controller:
+  require_ups_backed_power: true
+  require_auto_power_on: true
+
+recovery:
+  enabled: true
+  utility_stable_seconds: 120
+  battery_charge_min: 80
+  runtime_min_seconds: null
+  recharge_time_seconds: null
+  network_wait_seconds: 300
+
+health:
+  enabled: true
+  interval_seconds: 60
+  probation_seconds: 60
+  autofix: true
+  max_repair_attempts: 5
+
+network_dependencies:
+  - id: core-switch
+    name: Core Ethernet switch
+    address: 192.168.1.2
+    priority: 1
+    startup: auto-power
+    status:
+      method: tcp
+      port: 22
+      timeout_ms: 1000
+      success_consecutive: 3
+      probe_interval_seconds: 5
+    wake:
+      enabled: false
+
+hosts:
+  - id: synology
+    name: Synology NAS
+    address: 192.168.1.20
+    depends_on: [core-switch]
+    status:
+      method: tcp
+      port: 5000
+      timeout_ms: 1000
+      success_consecutive: 3
+      probe_interval_seconds: 5
+    shutdown:
+      method: nut
+      priority: 20
+      timeout_seconds: 180
+      ssh_user: null
+      ssh_key_file: null
+      command_id: null
+    wake:
+      enabled: true
+      mac: "AA:BB:CC:DD:EE:FF"
+      interface: eth0
+      broadcast: 192.168.1.255
+      port: 9
+      priority: 20
+      delay_after_previous_seconds: 30
+      max_attempts: 5
+    restore_policy: previous-state
+
+  - id: workstation
+    name: Workstation
+    address: 192.168.1.30
+    depends_on: [core-switch]
+    status:
+      method: tcp
+      port: 22
+      timeout_ms: 1000
+      success_consecutive: 3
+      probe_interval_seconds: 5
+    shutdown:
+      method: ssh
+      priority: 10
+      timeout_seconds: 90
+      ssh_user: powerctl
+      ssh_key_file: /etc/cockpit-ups-wol/secrets/workstation_ed25519
+      command_id: null
+    wake:
+      enabled: true
+      mac: "11:22:33:44:55:66"
+      interface: eth0
+      broadcast: 192.168.1.255
+      port: 9
+      priority: 30
+      delay_after_previous_seconds: 30
+      max_attempts: 5
+    restore_policy: previous-state

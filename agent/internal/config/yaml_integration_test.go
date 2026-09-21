@@ -8,7 +8,7 @@ import (
 )
 
 func TestCanonicalYAMLExampleParses(t *testing.T) {
-	b, err := os.ReadFile("../../../config/config.yaml.example")
+	b, err := os.ReadFile("testdata/config.yaml.example")
 	if err != nil {
 		t.Fatal(err)
 	}

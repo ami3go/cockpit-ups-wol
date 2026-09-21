@@ -2,6 +2,7 @@ package ipc
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -24,6 +25,13 @@ func TestUnixSocketGetHealth(t *testing.T) {
 		if err == nil {
 			if !resp.OK {
 				t.Fatalf("resp=%+v", resp)
+			}
+			info, statErr := os.Stat(path)
+			if statErr != nil {
+				t.Fatalf("stat socket: %v", statErr)
+			}
+			if got := info.Mode().Perm(); got != 0o600 {
+				t.Fatalf("socket mode=%#o want 0600", got)
 			}
 			cancel()
 			<-done
