@@ -1,15 +1,19 @@
 package host
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/ami3go/cockpit-ups-wol/agent/internal/config"
 )
+
+const knownHostsPath = "/etc/cockpit-ups-wol/known_hosts"
 
 type ShutdownDisposition string
 
@@ -75,6 +79,9 @@ func (e ShutdownExecutor) shutdownSSH(ctx context.Context, h config.HostConfig) 
 	args := []string{
 		"-o", "BatchMode=yes",
 		"-o", "StrictHostKeyChecking=yes",
+		"-o", "UserKnownHostsFile=" + knownHostsPath,
+		"-o", "GlobalKnownHostsFile=/dev/null",
+		"-o", "IdentitiesOnly=yes",
 		"-o", "ConnectTimeout=10",
 		"-i", key,
 		destination,
@@ -92,7 +99,9 @@ func (e ShutdownExecutor) shutdownSSH(ctx context.Context, h config.HostConfig) 
 }
 
 // ValidateArmedCapabilities rejects configuration features that do not yet have
-// a safe, tested v0.1 execution adapter.
+// a safe, tested v0.1 execution adapter. For SSH shutdown it also verifies the
+// local prerequisites that must exist before an outage: a readable private key
+// and an explicitly pinned host key in the project-owned known_hosts file.
 func ValidateArmedCapabilities(cfg config.Config) error {
 	for _, dep := range cfg.Dependencies {
 		if dep.Status.Method == "arp" {
@@ -124,6 +133,9 @@ func ValidateArmedCapabilities(cfg config.Config) error {
 			if h.Shutdown.SSHUser == nil || h.Shutdown.SSHKeyFile == nil {
 				return fmt.Errorf("host %q SSH shutdown is incomplete", h.ID)
 			}
+			if err := validateSSHLocalPrerequisites(*h.Address, *h.Shutdown.SSHKeyFile); err != nil {
+				return fmt.Errorf("host %q SSH shutdown prerequisite: %w", h.ID, err)
+			}
 		case "command":
 			return fmt.Errorf("host %q uses command shutdown, which is not available until the command registry is implemented", h.ID)
 		default:
@@ -140,6 +152,32 @@ func ValidateArmedCapabilities(cfg config.Config) error {
 				return fmt.Errorf("host %q wake is enabled without an IPv4 broadcast address", h.ID)
 			}
 		}
+	}
+	return nil
+}
+
+func validateSSHLocalPrerequisites(address, keyPath string) error {
+	keyPath = strings.TrimSpace(keyPath)
+	info, err := os.Stat(keyPath)
+	if err != nil {
+		return fmt.Errorf("SSH key %s is not readable: %w", keyPath, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("SSH key %s is not a regular file", keyPath)
+	}
+	if info.Mode().Perm()&0o022 != 0 {
+		return fmt.Errorf("SSH key %s must not be group/world writable", keyPath)
+	}
+	return validateKnownHost(address, knownHostsPath)
+}
+
+func validateKnownHost(address, path string) error {
+	out, err := exec.Command("ssh-keygen", "-F", strings.TrimSpace(address), "-f", path).CombinedOutput()
+	if err != nil || len(bytes.TrimSpace(out)) == 0 {
+		if errors.Is(err, exec.ErrNotFound) {
+			return errors.New("ssh-keygen is unavailable; install the OpenSSH client tools")
+		}
+		return fmt.Errorf("no pinned host key for %q in %s; enroll and verify the host key before arming", address, path)
 	}
 	return nil
 }
