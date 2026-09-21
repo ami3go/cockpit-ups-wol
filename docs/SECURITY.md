@@ -196,27 +196,13 @@ Cockpit authentication/authorization remains the primary user-facing access cont
 
 The project extension SHALL use Cockpit APIs and superuser mechanisms rather than implementing a separate password database.
 
-## 17. Service users
+## 17. Service identity and sandboxing
 
-Where practical:
+The v0.1 agent intentionally runs as root because the controller must request local NUT FSD, perform network/Wake-on-LAN operations, and maintain protected transaction state. A non-root service identity is therefore not claimed for this release.
 
-- agent runs under a dedicated service identity
-- privileged operations are isolated to the smallest necessary path
-- filesystem permissions restrict config/state/secrets
-- systemd hardening options are applied without breaking required NUT/IPC/network behavior
+Privilege is constrained with systemd sandboxing instead: `NoNewPrivileges`, strict filesystem protection, explicit writable project paths, restricted address families, kernel/control-group protections, namespace/SUID restrictions, a system-service syscall allowlist, and a bounded capability set. SSH keys and `known_hosts` are pinned under `/etc/cockpit-ups-wol/` so `ProtectHome=yes` cannot hide them.
 
-Candidate hardening settings include:
-
-```text
-NoNewPrivileges=yes
-PrivateTmp=yes
-ProtectHome=yes
-ProtectSystem=strict
-RestrictAddressFamilies=...
-ReadWritePaths=project-owned paths
-```
-
-Exact settings require integration testing.
+Any future split into an unprivileged policy process plus a narrow privileged helper must preserve the same fail-closed behavior and durable transaction semantics.
 
 ## 18. State integrity
 

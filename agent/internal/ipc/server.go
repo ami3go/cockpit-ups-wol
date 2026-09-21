@@ -26,7 +26,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		return errors.New("socket path is required")
 	}
 	if s.SocketMode == 0 {
-		s.SocketMode = 0o660
+		s.SocketMode = 0o600
 	}
 	if err := os.MkdirAll(filepath.Dir(s.SocketPath), 0o750); err != nil {
 		return err

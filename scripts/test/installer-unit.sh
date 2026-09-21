@@ -150,4 +150,10 @@ prune_committed_backups
 [[ ! -e "$BACKUP_BASE/20260919T000000Z-2" ]] || fail 'old rollback snapshot was not pruned'
 [[ ! -e "$BACKUP_BASE/20260918T000000Z-1" ]] || fail 'oldest rollback snapshot was not pruned'
 
-echo 'installer-unit: PASS'
+# Agent sandbox directives are part of the release contract.
+agent_unit="$(cat "$ROOT/packaging/systemd/cockpit-ups-wol-agent.service")"
+for directive in 'ProtectKernelTunables=yes' 'ProtectKernelModules=yes' 'ProtectControlGroups=yes' 'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK' 'RestrictSUIDSGID=yes' 'RestrictNamespaces=yes' 'LockPersonality=yes' 'MemoryDenyWriteExecute=yes' 'SystemCallFilter=@system-service' 'CapabilityBoundingSet=CAP_NET_RAW CAP_NET_BROADCAST CAP_NET_ADMIN CAP_KILL CAP_SYS_BOOT'; do
+  assert_contains "$agent_unit" "$directive"
+done
+
+echo 'installer-unit: PASS' 

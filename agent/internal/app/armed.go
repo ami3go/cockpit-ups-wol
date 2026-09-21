@@ -109,7 +109,7 @@ func runArmed(ctx context.Context, cfg config.Config, opts Options) error {
 	server := &ipc.Server{
 		Handler:    ipc.Handler{Health: supervisor},
 		SocketPath: opts.SocketPath,
-		SocketMode: 0o660,
+		SocketMode: 0o600,
 	}
 	go func() { serverErr <- server.ListenAndServe(serverCtx) }()
 

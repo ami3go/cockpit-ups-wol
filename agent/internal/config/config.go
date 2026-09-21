@@ -430,8 +430,8 @@ func validateHostDependencyCycles(problems *[]string, hosts []HostConfig) {
 	marks := make(map[string]int, len(graph))
 	stack := make([]string, 0, len(graph))
 
-	var visit func(string) bool
-	visit = func(id string) bool {
+	var visit func(string)
+	visit = func(id string) {
 		switch marks[id] {
 		case visiting:
 			start := 0
@@ -443,31 +443,26 @@ func validateHostDependencyCycles(problems *[]string, hosts []HostConfig) {
 			}
 			cycle := append(append([]string(nil), stack[start:]...), id)
 			*problems = append(*problems, "recovery dependency cycle detected: "+strings.Join(cycle, " -> "))
-			return false
+			return
 		case visited:
-			return true
+			return
 		}
-
 		marks[id] = visiting
 		stack = append(stack, id)
 		for _, dep := range graph[id] {
-			if _, managedHost := graph[dep]; !managedHost {
-				continue
-			}
-			if !visit(dep) {
-				return false
+			if _, ok := graph[dep]; ok {
+				visit(dep)
 			}
 		}
 		stack = stack[:len(stack)-1]
 		marks[id] = visited
-		return true
 	}
-
 	for id := range graph {
-		if marks[id] == unvisited && !visit(id) {
-			return
+		if marks[id] == unvisited {
+			visit(id)
 		}
 	}
+
 }
 
 func validateOptionalPercent(problems *[]string, path string, v *int) {

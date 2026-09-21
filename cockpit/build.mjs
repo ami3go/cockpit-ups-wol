@@ -11,7 +11,7 @@ await build({
   outdir,
   bundle: true,
   minify: true,
-  sourcemap: true,
+  sourcemap: false,
   target: ['es2020'],
   loader: { '.woff': 'file', '.woff2': 'file', '.ttf': 'file', '.svg': 'file', '.png': 'file', '.jpg': 'file' },
   define: { 'process.env.NODE_ENV': '"production"' },

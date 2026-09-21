@@ -7,7 +7,7 @@ import (
 )
 
 func TestBootstrapKnownGoodIsIdempotentAndRejectsDrift(t *testing.T) {
-	content, err := os.ReadFile("../../../config/config.yaml.example")
+	content, err := os.ReadFile("testdata/config.yaml.example")
 	if err != nil {
 		t.Fatal(err)
 	}

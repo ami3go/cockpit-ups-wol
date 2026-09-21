@@ -45,6 +45,8 @@ fi
 COCKPIT_UPS_WOL_REQUIRE_UI=1 COCKPIT_UPS_WOL_PROBATION_SECONDS=5 sudo -E "$ROOT/install.sh" --silent --profile existing-nut --binary-dir "$DIST"
 sudo systemctl is-enabled --quiet cockpit-ups-wol-agent.service
 sudo systemctl is-active --quiet cockpit-ups-wol-agent.service
+sudo systemd-analyze verify /etc/systemd/system/cockpit-ups-wol-agent.service
+sudo systemd-analyze security --no-pager cockpit-ups-wol-agent.service
 sudo systemctl is-enabled --quiet cockpit-ups-wol-health.timer
 sudo "$DIST/cockpit-ups-wolctl" --socket /run/cockpit-ups-wol/agent.sock health >/dev/null
 test -s /usr/share/cockpit/cockpit-ups-wol/manifest.json
