@@ -4,28 +4,113 @@
   "title": "cockpit-ups-wol persistent transaction state",
   "type": "object",
   "additionalProperties": false,
-  "required": ["state_version", "transaction_id", "sequence", "power_state", "shutdown_committed", "recovery_started", "active_config_revision", "hosts", "checksum"],
+  "required": [
+    "state_version",
+    "transaction_id",
+    "sequence",
+    "power_state",
+    "shutdown_committed",
+    "recovery_started",
+    "active_config_revision",
+    "hosts",
+    "checksum"
+  ],
   "properties": {
-    "state_version": {"const": 1},
-    "transaction_id": {"type": "string", "minLength": 1},
-    "sequence": {"type": "integer", "minimum": 0},
-    "power_state": {"enum": ["BOOT_RECONCILE", "NORMAL", "ON_BATTERY", "SHUTDOWN_COMMITTED", "SHUTDOWN_IN_PROGRESS", "WAITING_FOR_AC", "RECOVERY_WAIT", "RECOVERY_STARTED", "RESTORE_HOSTS", "FAILED_SAFE"]},
-    "shutdown_committed": {"type": "boolean"},
-    "recovery_started": {"type": "boolean"},
-    "active_config_revision": {"type": "string", "minLength": 1},
-    "parent_transaction_id": {"type": ["string", "null"]},
-    "outage_elapsed_seconds": {"type": "integer", "minimum": 0},
+    "state_version": {
+      "const": 1
+    },
+    "transaction_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "power_state": {
+      "enum": [
+        "BOOT_RECONCILE",
+        "NORMAL",
+        "ON_BATTERY",
+        "SHUTDOWN_COMMITTED",
+        "SHUTDOWN_IN_PROGRESS",
+        "WAITING_FOR_AC",
+        "RECOVERY_WAIT",
+        "RECOVERY_STARTED",
+        "RESTORE_HOSTS",
+        "FAILED_SAFE"
+      ]
+    },
+    "shutdown_committed": {
+      "type": "boolean"
+    },
+    "recovery_started": {
+      "type": "boolean"
+    },
+    "active_config_revision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "parent_transaction_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "outage_elapsed_seconds": {
+      "type": "integer",
+      "minimum": 0
+    },
     "last_ups": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "utility": {"enum": ["ONLINE", "ON_BATTERY", "UNKNOWN"]},
-        "low_battery": {"type": ["boolean", "null"]},
-        "fsd": {"type": ["boolean", "null"]},
-        "battery_charge": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
-        "battery_runtime_seconds": {"type": ["integer", "null"], "minimum": 0},
-        "raw_status": {"type": ["string", "null"]},
-        "observed_at_wallclock": {"type": ["string", "null"]}
+        "utility": {
+          "enum": [
+            "ONLINE",
+            "ON_BATTERY",
+            "UNKNOWN"
+          ]
+        },
+        "low_battery": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "fsd": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "battery_charge": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "battery_runtime_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "raw_status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "observed_at_wallclock": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       }
     },
     "hosts": {
@@ -33,29 +118,81 @@
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["was_online", "shutdown_state", "recovery_state", "shutdown_attempts", "wake_attempts"],
+        "required": [
+          "was_online",
+          "shutdown_state",
+          "recovery_state",
+          "shutdown_attempts",
+          "wake_attempts"
+        ],
         "properties": {
-          "was_online": {"type": ["boolean", "null"]},
-          "shutdown_state": {"enum": ["not_required", "planned", "requested", "acknowledged", "completed", "unknown", "failed"]},
-          "recovery_state": {"enum": ["not_required", "waiting", "wol_sent", "online", "unknown", "failed"]},
-          "shutdown_attempts": {"type": "integer", "minimum": 0},
-          "wake_attempts": {"type": "integer", "minimum": 0},
-          "last_action_id": {"type": ["string", "null"]},
-          "last_verification": {"enum": ["online", "offline", "unknown", "not_checked"]},
-          "last_error": {"type": ["string", "null"]}
+          "was_online": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "shutdown_state": {
+            "enum": [
+              "not_required",
+              "planned",
+              "requested",
+              "acknowledged",
+              "completed",
+              "unknown",
+              "failed"
+            ]
+          },
+          "recovery_state": {
+            "enum": [
+              "not_required",
+              "waiting",
+              "wol_sent",
+              "online",
+              "unknown",
+              "failed"
+            ]
+          },
+          "shutdown_attempts": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "wake_attempts": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "last_action_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_verification": {
+            "enum": [
+              "online",
+              "offline",
+              "unknown",
+              "not_checked"
+            ]
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         }
       }
     },
-    "config_transaction": {
-      "type": ["object", "null"],
-      "additionalProperties": false,
-      "properties": {
-        "candidate_revision": {"type": ["string", "null"]},
-        "status": {"enum": ["none", "candidate", "validating", "rolling-back"]},
-        "last_known_good": {"type": ["string", "null"]}
-      }
+    "failed_safe_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
     },
-    "failed_safe_reason": {"type": ["string", "null"]},
-    "checksum": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"}
+    "checksum": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    }
   }
 }

@@ -25,6 +25,14 @@ func NewCoordinator(engine *Engine, store StateWriter) *Coordinator {
 
 func (c *Coordinator) State() state.State { return c.engine.State() }
 
+// ObserveUPS refreshes the in-memory UPS observation carried into the next
+// durable state generation. It deliberately does not force a write on every
+// poll; every subsequent durable write therefore records the observation
+// without adding a five-second flash/disk write loop.
+func (c *Coordinator) ObserveUPS(observation state.UPSObservation) {
+	c.engine.st.LastUPS = &observation
+}
+
 // Write makes Coordinator itself a state writer. This is used by host/recovery
 // orchestration so every durable per-host update also refreshes the policy
 // engine's in-memory state; the two views can therefore never drift apart.

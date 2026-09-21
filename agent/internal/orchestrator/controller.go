@@ -568,19 +568,22 @@ func toHostConfigs(in []config.HostConfig) []host.Config {
 	return out
 }
 
+// recoverySettled reports whether every restore-eligible host has reached a
+// terminal recovery state. A fleet with no eligible hosts is settled.
 func recoverySettled(hosts []host.Config, states map[string]state.HostState) bool {
-	any := false
 	for _, h := range hosts {
 		hs, ok := states[h.ID]
 		if !ok || !host.EligibleForRestore(h, hs) {
 			continue
 		}
-		any = true
-		if hs.RecoveryState != state.RecoveryOnline && hs.RecoveryState != state.RecoveryFailed && hs.RecoveryState != state.RecoveryNotRequired {
+		switch hs.RecoveryState {
+		case state.RecoveryOnline, state.RecoveryFailed, state.RecoveryNotRequired:
+			continue
+		default:
 			return false
 		}
 	}
-	return any || true
+	return true
 }
 
 func markBlockedRecovery(st *state.State, hosts []host.Config) bool {
