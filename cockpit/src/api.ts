@@ -12,8 +12,9 @@ async function inputCommand<T>(args:string[],input:string,superuser:'try'|'requi
 export const getHealth=()=>jsonCommand<HealthResponse>(['health'],'try');
 export const getConfigStatus=()=>jsonCommand<ConfigStatus>(['config-status'],'try');
 export const getPlan=()=>jsonCommand<Plan>(['plan'],'try');
-// Journal output can contain host IDs and operational details, so keep logs privileged.
-export const getLogs=()=>window.cockpit.spawn([ctl,'logs'],{err:'message',superuser:'require'});
+// Logs are read-only. Use Cockpit's non-forced elevation path so monitoring
+// remains available to users who already have journal access.
+export const getLogs=()=>window.cockpit.spawn([ctl,'logs'],{err:'message',superuser:'try'});
 // The canonical config can contain Synology credentials and key paths; keep it privileged.
 export const getConfigText=()=>window.cockpit.spawn([ctl,'config-get'],{err:'message',superuser:'require'});
 export const validateConfig=(text:string)=>inputCommand<ConfigValidation>(['config-validate'],text,'try');
