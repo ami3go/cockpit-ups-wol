@@ -32,7 +32,7 @@ func baseConfig(mode string) config.Config {
 
 func intPtr(v int) *int { return &v }
 
-func closedWatchdog(context.Context) (<-chan error, error) {
+func closedWatchdog(context.Context, <-chan struct{}, time.Duration) (<-chan error, error) {
 	ch := make(chan error)
 	close(ch)
 	return ch, nil
@@ -75,15 +75,16 @@ func testRuntimeStartsAndStops(t *testing.T, mode string) {
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- Run(ctx, baseConfig(mode), Options{
-			SocketPath:      socket,
-			HealthStatePath: healthState,
-			StateDir:        stateDir,
-			HealthInterval:  10 * time.Millisecond,
-			PowerInterval:   10 * time.Millisecond,
-			NUT:             fakeNUT{status: nut.Status{Utility: nut.UtilityOnline}},
-			Ready:           func() error { return nil },
-			Stopping:        func() error { return nil },
-			StartWatchdog:   closedWatchdog,
+			SocketPath:            socket,
+			HealthStatePath:       healthState,
+			SystemHealthStatePath: filepath.Join(dir, "system-health.json"),
+			StateDir:              stateDir,
+			HealthInterval:        10 * time.Millisecond,
+			PowerInterval:         10 * time.Millisecond,
+			NUT:                   fakeNUT{status: nut.Status{Utility: nut.UtilityOnline}},
+			Ready:                 func() error { return nil },
+			Stopping:              func() error { return nil },
+			StartWatchdog:         closedWatchdog,
 		})
 	}()
 
