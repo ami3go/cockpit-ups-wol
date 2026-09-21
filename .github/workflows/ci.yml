@@ -36,8 +36,19 @@ jobs:
             gofmt -d .
             exit 1
           fi
-      - name: Unit tests
-        run: go test ./...
+      - name: Unit tests and coverage floor
+        run: |
+          go test -coverprofile=coverage.out ./...
+          total="$(go tool cover -func=coverage.out | awk '/^total:/ {gsub(/%/,"",$3); print $3}')"
+          echo "total coverage: $total% (required: >= 56%)"
+          awk -v total="$total" 'BEGIN { if ((total + 0) < 56) exit 1 }'
+      - name: Schema contract
+        working-directory: .
+        run: |
+          python3 -m pip install --disable-pip-version-check 'check-jsonschema==0.35.0'
+          check-jsonschema --schemafile schemas/config.schema.json config/config.yaml.example
+          (cd agent && go run ./internal/state/cmd/schema-fixture) > /tmp/cockpit-ups-wol-state.json
+          check-jsonschema --schemafile schemas/state.schema.json /tmp/cockpit-ups-wol-state.json
       - name: Race detector
         run: go test -race ./...
       - name: Canonical YAML integration test
