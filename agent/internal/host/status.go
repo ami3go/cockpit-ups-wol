@@ -84,11 +84,17 @@ func (c StatusChecker) Check(ctx context.Context, address string, cfg config.Sta
 		if err == nil {
 			return ProbeResult{Known: true, Online: true}, nil
 		}
+		// Cancellation of the caller is not an observation about the host.
+		// Check it before ExitError because exec.CommandContext may report a
+		// killed child as an ExitError when the parent context is cancelled.
+		if ctx.Err() != nil {
+			return ProbeResult{}, ctx.Err()
+		}
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			return ProbeResult{Known: true, Online: false}, nil
 		}
-		if probeCtx.Err() != nil {
+		if errors.Is(probeCtx.Err(), context.DeadlineExceeded) {
 			return ProbeResult{Known: true, Online: false}, nil
 		}
 		return ProbeResult{}, fmt.Errorf("ping probe: %w", err)
