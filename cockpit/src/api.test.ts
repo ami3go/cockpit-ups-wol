@@ -24,20 +24,20 @@ beforeEach(() => {
 });
 
 describe('Cockpit command privilege boundary', () => {
-  it('uses try privilege for sanitized read-only commands', async () => {
+  it('uses try privilege for read-only commands', async () => {
     const { calls } = installCockpit('{"ok":true,"result":{"state":"HEALTHY","checked_at":"now","results":[],"generation":1}}');
     await getHealth();
     await getConfigStatus();
     await getPlan();
-    expect(calls.map((c) => c.options?.superuser)).toEqual(['try', 'try', 'try']);
+    await getLogs();
+    expect(calls.map((c) => c.options?.superuser)).toEqual(['try', 'try', 'try', 'try']);
   });
 
-  it('keeps logs and mutations privileged', async () => {
+  it('keeps mutations privileged', async () => {
     const { calls } = installCockpit('{}');
-    await getLogs();
     await applyConfig('mode: dry-run\n');
     await rollbackConfig('revision-1');
-    expect(calls.map((c) => c.options?.superuser)).toEqual(['require', 'require', 'require']);
+    expect(calls.map((c) => c.options?.superuser)).toEqual(['require', 'require']);
   });
 
   it('passes candidate config on stdin while validation stays read-only', async () => {

@@ -46,7 +46,11 @@ COCKPIT_UPS_WOL_REQUIRE_UI=1 COCKPIT_UPS_WOL_PROBATION_SECONDS=5 sudo -E "$ROOT/
 sudo systemctl is-enabled --quiet cockpit-ups-wol-agent.service
 sudo systemctl is-active --quiet cockpit-ups-wol-agent.service
 sudo systemd-analyze verify /etc/systemd/system/cockpit-ups-wol-agent.service
-sudo systemd-analyze security --no-pager cockpit-ups-wol-agent.service
+SYSTEMD_SECURITY_REPORT="$(sudo systemd-analyze security --no-pager cockpit-ups-wol-agent.service)"
+printf '%s\n' "$SYSTEMD_SECURITY_REPORT"
+SYSTEMD_EXPOSURE="$(sed -nE 's/.*Overall exposure level.*: ([0-9]+([.][0-9]+)?).*/\1/p' <<<"$SYSTEMD_SECURITY_REPORT" | tail -n 1)"
+[[ -n "$SYSTEMD_EXPOSURE" ]] || { echo 'unable to parse systemd exposure score' >&2; exit 1; }
+awk -v score="$SYSTEMD_EXPOSURE" 'BEGIN { exit !((score + 0) <= 3.5) }' || { echo "systemd exposure score $SYSTEMD_EXPOSURE exceeds maximum 3.5" >&2; exit 1; }
 sudo systemctl is-enabled --quiet cockpit-ups-wol-health.timer
 sudo "$DIST/cockpit-ups-wolctl" --socket /run/cockpit-ups-wol/agent.sock health >/dev/null
 test -s /usr/share/cockpit/cockpit-ups-wol/manifest.json

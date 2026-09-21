@@ -59,6 +59,8 @@ install_project_config(){
     return 0
   fi
 
+  # Consumed by sourced network.sh.
+  # shellcheck disable=SC2034
   PROJECT_CONFIG_CREATED=1
   install -m0600 "$SELF_DIR/config/config.yaml.example" "$ETC_DIR/config.yaml"
   local cfg_profile="$PROFILE" driver_value port_value allowed_yaml ipv4_yaml ipv6_yaml

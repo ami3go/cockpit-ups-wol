@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-PROJECT_NAME=cockpit-ups-wol; INSTALL_LOG=/var/log/cockpit-ups-wol/install.log; LIBEXEC_DIR=/usr/libexec/cockpit-ups-wol
-ETC_DIR=/etc/cockpit-ups-wol; STATE_DIR=/var/lib/cockpit-ups-wol; BACKUP_BASE=/var/backups/cockpit-ups-wol; SYSTEMD_DIR=/etc/systemd/system
+INSTALL_LOG=/var/log/cockpit-ups-wol/install.log; LIBEXEC_DIR=/usr/libexec/cockpit-ups-wol
+ETC_DIR=/etc/cockpit-ups-wol; STATE_DIR=/var/lib/cockpit-ups-wol; export BACKUP_BASE=/var/backups/cockpit-ups-wol; SYSTEMD_DIR=/etc/systemd/system
 CURRENT_BACKUP=""; INSTALL_COMMITTED=0
-log(){ local m="[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*"; printf '%s\n' "$m"; [[ -n "${INSTALL_LOG_ACTIVE:-}" ]]&&printf '%s\n' "$m">>"$INSTALL_LOG"||true; }
+log(){ local m; m="[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*"; printf '%s\n' "$m"; [[ -n "${INSTALL_LOG_ACTIVE:-}" ]]&&printf '%s\n' "$m">>"$INSTALL_LOG"||true; }
 warn(){ log "WARN: $*"; }; die(){ printf 'ERROR: %s\n' "$*" >&2; exit 1; }; require_root(){ [[ ${EUID:-$(id -u)} -eq 0 ]]||die "installer must run as root"; }
 validate_test_overrides(){
   local v
