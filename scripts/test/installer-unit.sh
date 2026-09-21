@@ -129,4 +129,16 @@ backup_commit
 [[ ! -e "$INSTALL_PENDING_MARKER" ]] || fail 'backup_commit did not clear durable install marker'
 [[ "$INSTALL_COMMITTED" -eq 1 ]] || fail 'backup_commit did not set commit state'
 
+# Committed rollback snapshots are bounded so an SBC /var filesystem cannot
+# grow forever. The newest BACKUP_KEEP snapshots remain available.
+BACKUP_BASE="$tmp/prune-backups"
+install -d -m0700 "$BACKUP_BASE"/{20260918T000000Z-1,20260919T000000Z-2,20260920T000000Z-3,20260921T000000Z-4}
+CURRENT_BACKUP="$BACKUP_BASE/20260921T000000Z-4"
+BACKUP_KEEP=2
+prune_committed_backups
+[[ -d "$BACKUP_BASE/20260921T000000Z-4" ]] || fail 'current rollback snapshot was pruned'
+[[ -d "$BACKUP_BASE/20260920T000000Z-3" ]] || fail 'second newest rollback snapshot was pruned'
+[[ ! -e "$BACKUP_BASE/20260919T000000Z-2" ]] || fail 'old rollback snapshot was not pruned'
+[[ ! -e "$BACKUP_BASE/20260918T000000Z-1" ]] || fail 'oldest rollback snapshot was not pruned'
+
 echo 'installer-unit: PASS'

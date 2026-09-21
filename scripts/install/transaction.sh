@@ -2,6 +2,7 @@
 # Service/file-state aware transaction hooks. Sourced after common/cockpit helpers.
 TRACKED_UNITS=(cockpit-ups-wol-agent.service cockpit-ups-wol-health.timer cockpit-ups-wol-firewall.service cockpit-ups-wol-install-recover.service cockpit.socket nut-server.service nut-monitor.service nut-driver-enumerator.service)
 INSTALL_PENDING_MARKER="$BACKUP_BASE/install-pending"
+BACKUP_KEEP=3
 
 sync_transaction_dir(){
   local d="$1"
@@ -102,11 +103,30 @@ install_failure(){
   exit "$rc"
 }
 
+prune_committed_backups(){
+  [[ -d "$BACKUP_BASE" ]] || return 0
+  [[ "$BACKUP_KEEP" =~ ^[1-9][0-9]*$ ]] || die "invalid BACKUP_KEEP: $BACKUP_KEEP"
+
+  local -a backups=()
+  local entry i
+  mapfile -t backups < <(find "$BACKUP_BASE" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -r)
+  for ((i=BACKUP_KEEP; i<${#backups[@]}; i++)); do
+    entry="$BACKUP_BASE/${backups[$i]}"
+    # The current transaction has already committed, but preserve it
+    # defensively even if a non-standard backup name sorts unexpectedly.
+    [[ "$entry" == "$CURRENT_BACKUP" ]] && continue
+    log "pruning old rollback snapshot: $entry"
+    rm -rf -- "$entry"
+  done
+  sync_transaction_dir "$BACKUP_BASE"
+}
+
 backup_commit(){
   # Removing and fsyncing the marker is the durable commit point. If power is
   # lost before this succeeds, boot recovery rolls back to CURRENT_BACKUP.
   install_pending_clear
   INSTALL_COMMITTED=1
+  prune_committed_backups
   log "installation committed; rollback snapshot retained at $CURRENT_BACKUP"
 }
 
