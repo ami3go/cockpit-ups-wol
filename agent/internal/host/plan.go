@@ -16,19 +16,19 @@ const (
 )
 
 type Config struct {
-	ID                       string
-	ShutdownMethod           string
-	ShutdownPriority         int
-	WakeEnabled              bool
-	WakePriority             int
-	WakeMaxAttempts          int
+	ID                            string
+	ShutdownMethod                string
+	ShutdownPriority              int
+	WakeEnabled                   bool
+	WakePriority                  int
+	WakeMaxAttempts               int
 	WakeDelayAfterPreviousSeconds int
-	WakeMAC                  string
-	WakeInterface            string
-	WakeBroadcast            string
-	WakePort                 int
-	RestorePolicy            RestorePolicy
-	DependsOn                []string
+	WakeMAC                       string
+	WakeInterface                 string
+	WakeBroadcast                 string
+	WakePort                      int
+	RestorePolicy                 RestorePolicy
+	DependsOn                     []string
 }
 
 type ShutdownPlan struct {

@@ -26,8 +26,8 @@ func (shutdownRetryProbe) Check(context.Context, config.HostConfig) (host.ProbeR
 func (shutdownRetryProbe) Wait(context.Context, config.HostConfig, bool) error { return nil }
 
 type flakyDirectShutdown struct {
-	calls    int
-	failFor  int
+	calls   int
+	failFor int
 }
 
 func (s *flakyDirectShutdown) Shutdown(context.Context, config.HostConfig) (host.ShutdownResult, error) {
