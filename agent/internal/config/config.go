@@ -239,6 +239,7 @@ func Validate(cfg Config) error {
 		if d.Status.Method != "none" && nilOrEmpty(d.Address) {
 			problems = append(problems, path+".address is required when status checks are enabled")
 		}
+		validateAddress(&problems, path+".address", d.Address)
 		if d.Startup == "wol" && !d.Wake.Enabled {
 			problems = append(problems, path+" startup=wol requires wake.enabled")
 		}
@@ -254,6 +255,10 @@ func Validate(cfg Config) error {
 		}
 		validateStatus(&problems, path+".status", h.Status)
 		validateWake(&problems, path+".wake", h.Wake)
+		if h.Status.Method != "none" && nilOrEmpty(h.Address) {
+			problems = append(problems, path+".address is required when status checks are enabled")
+		}
+		validateAddress(&problems, path+".address", h.Address)
 		if !oneOf(h.Shutdown.Method, "nut", "ssh", "command", "none") {
 			problems = append(problems, path+".shutdown.method invalid")
 		}
@@ -407,6 +412,7 @@ func validateWake(problems *[]string, path string, w WakeConfig) {
 		} else if mac, err := net.ParseMAC(*w.MAC); err != nil || len(mac) != 6 {
 			*problems = append(*problems, path+".mac invalid")
 		}
+		validateIPv4(problems, path+".broadcast", w.Broadcast)
 	}
 }
 
