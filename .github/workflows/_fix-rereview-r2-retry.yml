@@ -1,0 +1,44 @@
+name: fix-rereview-r2-retry
+on:
+  push:
+    branches: [fix/rereview-r2-watchdog-progress]
+    paths:
+      - '.github/workflows/_fix-rereview-r2-retry.yml'
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/rereview-r2-watchdog-progress
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.26.x'
+          cache-dependency-path: agent/go.sum
+      - name: Correct watchdog anchor and apply patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('.github/scripts/_apply_r2.py')
+          s = p.read_text()
+          start = s.index('# The watchdog must withhold stale pings')
+          end = s.index('# Any completed status probe')
+          replacement = '''# The watchdog must withhold stale pings, but stay alive so a recovered loop can resume.\nreplace(\n    "agent/internal/system/systemd_notify.go",\n    "\\t\\t\\t\\t\\treturn\\n\\t\\t\\t\\t}\\n\\t\\t\\t\\tif err := Watchdog();",\n    "\\t\\t\\t\\t\\tcontinue\\n\\t\\t\\t\\t}\\n\\t\\t\\t\\tif err := Watchdog();",\n)\n\n'''
+          p.write_text(s[:start] + replacement + s[end:])
+          PY
+          python3 .github/scripts/_apply_r2.py
+      - name: Format and test
+        run: |
+          gofmt -w agent/internal/system/systemd_notify.go agent/internal/system/watchdog_heartbeat_test.go agent/internal/host/status.go agent/internal/host/shutdown.go agent/internal/host/shutdown_progress_test.go agent/internal/app/armed.go
+          cd agent
+          go test ./internal/system ./internal/host ./internal/app
+      - name: Commit product patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add agent/internal/system agent/internal/host agent/internal/app/armed.go
+          git commit -m 'fix(watchdog): report progress during shutdown waits'
+          git push origin HEAD:fix/rereview-r2-watchdog-progress
