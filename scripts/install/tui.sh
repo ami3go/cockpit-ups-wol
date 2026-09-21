@@ -80,6 +80,16 @@ tui_wizard(){
     else
       NUT_ALLOWED_CLIENTS=()
       NUT_LISTEN_IPV6=0
+      if ((SYNOLOGY)); then
+        if tui_yesno 'Synology trusted-LAN exposure' 'Synology DSM compatibility uses fixed monitor credentials (monuser/secret). Trusted-LAN mode exposes those monitor-only credentials to any host that can reach NUT TCP 3493.
+
+Continue only if this LAN is intentionally trusted. Restricted mode is recommended.'; then
+          ACCEPT_TRUSTED_LAN_SYNOLOGY=1
+        else
+          tui_msg 'Restricted mode recommended' 'Restart the installer and select restricted NUT network security, then enter the Synology/client CIDRs that may access TCP 3493.'
+          exit 1
+        fi
+      fi
     fi
   fi
 

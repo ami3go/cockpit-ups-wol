@@ -18,6 +18,9 @@ resolve_profile_inputs(){
   fi
   [[ -n "$NUT_HOST" ]] || NUT_HOST=localhost
   [[ "$NUT_HOST" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid NUT host"
+  if ((SYNOLOGY)) && [[ "$NETWORK_MODE" == trusted-lan ]] && (( ! ${ACCEPT_TRUSTED_LAN_SYNOLOGY:-0} )); then
+    die "Synology compatibility uses fixed monitor credentials; choose --network-mode restricted or explicitly pass --accept-trusted-lan-synology"
+  fi
   if [[ -n "$UPS_DRIVER" || -n "$UPS_PORT" ]]; then
     [[ "$PROFILE" == local-server ]] || die "--ups-driver/--ups-port apply only to local-server profile"
     if ((SILENT)) && { [[ -z "$UPS_DRIVER" ]] || [[ -z "$UPS_PORT" ]]; }; then

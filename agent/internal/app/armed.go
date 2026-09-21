@@ -454,7 +454,15 @@ func policyFromConfig(cfg config.Config) policy.Config {
 }
 
 func configRevision(cfg config.Config) (string, error) {
-	b, err := json.Marshal(cfg)
+	material := struct {
+		Config                 config.Config `json:"config"`
+		SynologyPasswordSHA256 string        `json:"synology_password_sha256,omitempty"`
+	}{Config: cfg}
+	if cfg.NUT.Synology.Enabled {
+		digest := sha256.Sum256([]byte(cfg.NUT.Synology.Password))
+		material.SynologyPasswordSHA256 = hex.EncodeToString(digest[:])
+	}
+	b, err := json.Marshal(material)
 	if err != nil {
 		return "", fmt.Errorf("encode config revision: %w", err)
 	}

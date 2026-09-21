@@ -47,7 +47,7 @@ type NUTNetworkConfig struct {
 type SynologyCompatibility struct {
 	Enabled  bool   `yaml:"enabled" json:"enabled"`
 	Username string `yaml:"username" json:"username"`
-	Password string `yaml:"password" json:"password"`
+	Password string `yaml:"password" json:"-"`
 }
 
 type OutageConfig struct {

@@ -36,7 +36,9 @@ instcmds = ALL
 
 or other administrative rights.
 
-Because `monuser/secret` is a compatibility convention rather than a strong secret, deployments rely on trusted/restricted LAN controls and no public Internet exposure of NUT TCP 3493.
+Because `monuser/secret` is a compatibility convention rather than a strong secret, deployments rely on network controls and no public Internet exposure of NUT TCP 3493.
+
+`restricted` NUT network mode is recommended for Synology deployments. If `trusted-lan` is intentionally used, the installer requires the explicit `--accept-trusted-lan-synology` acknowledgement (or the equivalent TUI confirmation) before exposing the DSM compatibility account. The acknowledgement does not make the fixed credential secret; it records that the operator intentionally trusts every host able to reach TCP 3493.
 
 ## 4. Shutdown ownership
 

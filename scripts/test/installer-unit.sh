@@ -11,6 +11,15 @@ source "$ROOT/scripts/install/configuration.sh"
 fail(){ echo "installer-unit: FAIL: $*" >&2; exit 1; }
 assert_contains(){ local hay="$1" needle="$2"; grep -Fq -- "$needle" <<<"$hay" || fail "missing: $needle"; }
 
+# Synology DSM compatibility uses fixed monitor credentials. Trusted-LAN
+# exposure therefore requires an explicit acknowledgement; restricted mode does not.
+if (PROFILE=local-server; MODE=default; CHECK_ONLY=0; SILENT=1; SYNOLOGY=1; UPS_NAME=ups; NUT_HOST=localhost; UPS_DRIVER=""; UPS_PORT=""; OPERATING_MODE=dry-run; OUTAGE_GRACE=120; RECOVERY_CHARGE=80; UTILITY_STABLE=120; NETWORK_WAIT=300; NETWORK_MODE=trusted-lan; NUT_LISTEN_IPV4=1; NUT_LISTEN_IPV6=0; NUT_ALLOWED_CLIENTS=(); ACCEPT_TRUSTED_LAN_SYNOLOGY=0; resolve_profile_inputs) >/dev/null 2>&1; then
+  fail "Synology trusted-lan unexpectedly accepted without explicit acknowledgement"
+fi
+if ! (PROFILE=local-server; MODE=default; CHECK_ONLY=0; SILENT=1; SYNOLOGY=1; UPS_NAME=ups; NUT_HOST=localhost; UPS_DRIVER=""; UPS_PORT=""; OPERATING_MODE=dry-run; OUTAGE_GRACE=120; RECOVERY_CHARGE=80; UTILITY_STABLE=120; NETWORK_WAIT=300; NETWORK_MODE=trusted-lan; NUT_LISTEN_IPV4=1; NUT_LISTEN_IPV6=0; NUT_ALLOWED_CLIENTS=(); ACCEPT_TRUSTED_LAN_SYNOLOGY=1; resolve_profile_inputs) >/dev/null 2>&1; then
+  fail "explicit Synology trusted-lan acknowledgement was rejected"
+fi
+
 # Test-only environment seams must never affect a production root install
 # unless the caller explicitly opts into controlled test mode.
 if (unset COCKPIT_UPS_WOL_TEST_MODE; COCKPIT_UPS_WOL_PROBATION_SECONDS=1 validate_test_overrides) >/dev/null 2>&1; then
