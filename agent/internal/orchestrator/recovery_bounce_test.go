@@ -19,15 +19,15 @@ func TestRecoveryPowerBounceStartsNewOutageAndReshutsRecoveredHost(t *testing.T)
 	st.RecoveryStarted = true
 	wasOnline := true
 	st.Hosts["pc"] = state.HostState{
-		WasOnline:      &wasOnline,
-		ShutdownState:  state.ShutdownCompleted,
-		RecoveryState:  state.RecoveryOnline,
+		WasOnline:        &wasOnline,
+		ShutdownState:    state.ShutdownCompleted,
+		RecoveryState:    state.RecoveryOnline,
 		ShutdownAttempts: 1,
 	}
 	st.Hosts["nas"] = state.HostState{
-		WasOnline:      &wasOnline,
-		ShutdownState:  state.ShutdownCompleted,
-		RecoveryState:  state.RecoveryWaiting,
+		WasOnline:        &wasOnline,
+		ShutdownState:    state.ShutdownCompleted,
+		RecoveryState:    state.RecoveryWaiting,
 		ShutdownAttempts: 1,
 	}
 

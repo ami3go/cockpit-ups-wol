@@ -68,15 +68,15 @@ type ConfigTransaction struct {
 }
 
 type State struct {
-	StateVersion         int                  `json:"state_version"`
-	TransactionID        string               `json:"transaction_id"`
-	ParentTransactionID  string               `json:"parent_transaction_id,omitempty"`
-	Sequence             uint64               `json:"sequence"`
-	PowerState           PowerState           `json:"power_state"`
-	ShutdownCommitted    bool                 `json:"shutdown_committed"`
-	RecoveryStarted      bool                 `json:"recovery_started"`
-	ActiveConfigRevision string               `json:"active_config_revision"`
-	LastUPS              *UPSObservation      `json:"last_ups,omitempty"`
+	StateVersion         int             `json:"state_version"`
+	TransactionID        string          `json:"transaction_id"`
+	ParentTransactionID  string          `json:"parent_transaction_id,omitempty"`
+	Sequence             uint64          `json:"sequence"`
+	PowerState           PowerState      `json:"power_state"`
+	ShutdownCommitted    bool            `json:"shutdown_committed"`
+	RecoveryStarted      bool            `json:"recovery_started"`
+	ActiveConfigRevision string          `json:"active_config_revision"`
+	LastUPS              *UPSObservation `json:"last_ups,omitempty"`
 	// OutageElapsedSeconds is a durable monotonic lower bound accumulated while
 	// the controller is known to be on battery. It intentionally does not rely
 	// on wall-clock/RTC correctness across reboot. Policy checkpoints it at a

@@ -23,10 +23,10 @@ func baseConfig(mode string) config.Config {
 	return config.Config{
 		ConfigVersion: 1,
 		Mode:          mode,
-		NUT: config.NUTConfig{Profile: "local-server", UPSName: "ups", Host: "localhost", Port: 3493},
-		Controller: config.ControllerConfig{RequireUPSBackedPower: true, RequireAutoPowerOn: true},
-		Recovery: config.RecoveryConfig{Enabled: true, UtilityStableSeconds: 1, BatteryChargeMin: intPtr(80)},
-		Health: config.HealthConfig{Enabled: true, IntervalSeconds: 60, MaxRepairAttempts: 5},
+		NUT:           config.NUTConfig{Profile: "local-server", UPSName: "ups", Host: "localhost", Port: 3493},
+		Controller:    config.ControllerConfig{RequireUPSBackedPower: true, RequireAutoPowerOn: true},
+		Recovery:      config.RecoveryConfig{Enabled: true, UtilityStableSeconds: 1, BatteryChargeMin: intPtr(80)},
+		Health:        config.HealthConfig{Enabled: true, IntervalSeconds: 60, MaxRepairAttempts: 5},
 	}
 }
 
