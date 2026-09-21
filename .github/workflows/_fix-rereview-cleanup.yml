@@ -1,0 +1,37 @@
+name: fix-rereview-cleanup
+on:
+  push:
+    branches: [fix/rereview-r5-r7-r8-r10-r11]
+    paths:
+      - '.github/workflows/_fix-rereview-cleanup.yml'
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/rereview-r5-r7-r8-r10-r11
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.26.x'
+          cache-dependency-path: agent/go.sum
+      - name: Apply patch
+        run: python3 .github/scripts/_apply_rereview_cleanup.py
+      - name: Format and test
+        run: |
+          gofmt -w agent/internal/config/address_validation.go agent/internal/config/address_validation_test.go agent/internal/config/revision.go agent/internal/policy/engine.go agent/internal/policy/recovery_abort_restart_test.go
+          cd agent
+          go test ./internal/config ./internal/policy
+      - name: Shell syntax
+        run: |
+          for f in scripts/install/transaction.sh scripts/release/build-bundles.sh; do bash -n "$f"; done
+      - name: Commit product patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/ci.yml .github/workflows/package.yml agent/internal/config agent/internal/policy scripts/install/transaction.sh
+          git commit -m 'fix(review): close re-review cleanup findings'
+          git push origin HEAD:fix/rereview-r5-r7-r8-r10-r11
