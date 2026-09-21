@@ -1,0 +1,35 @@
+name: apply-review-m7
+
+on:
+  push:
+    branches:
+      - fix/review-m7-synology-security
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/review-m7-synology-security
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - name: Apply and verify Synology hardening
+        run: |
+          python3 scripts/dev/apply-review-m7.py
+          gofmt -w agent/internal/config/config.go agent/internal/config/synology_secret_test.go agent/internal/app/armed.go agent/internal/app/config_revision_secret_test.go agent/internal/report/report_test.go
+          bash -n install.sh scripts/install/configuration.sh scripts/install/tui.sh scripts/test/installer-unit.sh
+          ./scripts/test/installer-unit.sh
+          (cd agent && go test ./internal/config ./internal/app ./internal/report)
+          rm -f .github/workflows/apply-review-m7.yml scripts/dev/apply-review-m7.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(synology): require explicit trusted-LAN exposure'
+          git push origin HEAD:fix/review-m7-synology-security
