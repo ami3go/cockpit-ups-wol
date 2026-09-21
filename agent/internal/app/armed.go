@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/ami3go/cockpit-ups-wol/agent/internal/config"
@@ -89,7 +90,7 @@ func runArmed(ctx context.Context, cfg config.Config, opts Options) error {
 		fsdClient = realClient
 	}
 	recovery := host.RecoveryExecutor{
-		Waker:   armedWaker{hosts: byID, sender: wol.Sender{}},
+		Waker:   armedWaker{hosts: byID, sender: wol.Sender{}, log: opts.Log},
 		Checker: armedRecoveryChecker{hosts: byID, checker: host.StatusChecker{}},
 		Store:   coord,
 	}
@@ -124,11 +125,18 @@ func runArmed(ctx context.Context, cfg config.Config, opts Options) error {
 		return fmt.Errorf("systemd READY notification: %w", err)
 	}
 	defer func() { _ = opts.Stopping() }()
+	opts.Log.Info("armed runtime ready",
+		"transaction_id", controller.Policy.State().TransactionID,
+		"power_state", controller.Policy.State().PowerState,
+		"config_revision", revision)
 
-	watchdogCh, err := opts.StartWatchdog(ctx)
+	beat := make(chan struct{}, 1)
+	watchdogCh, err := opts.StartWatchdog(ctx, beat, 20*time.Second)
 	if err != nil {
 		return fmt.Errorf("start systemd watchdog: %w", err)
 	}
+	nonBlockingBeat(beat)
+
 	healthInterval := opts.HealthInterval
 	if healthInterval <= 0 {
 		healthInterval = time.Duration(cfg.Health.IntervalSeconds) * time.Second
@@ -161,29 +169,70 @@ func runArmed(ctx context.Context, cfg config.Config, opts Options) error {
 		case <-healthTicker.C:
 			latestHealth, err = supervisor.Run(ctx, cfg.Health.Autofix)
 			if err != nil {
+				opts.Log.Error("health supervisor run failed", "error", err)
 				return fmt.Errorf("health supervisor: %w", err)
+			}
+			if latestHealth.State != health.Healthy {
+				opts.Log.Warn("agent health degraded", "health_state", latestHealth.State)
 			}
 		case <-powerTicker.C:
 			if err := armedPowerTick(ctx, cfg, opts, controller, deps, latestHealth, fsdClient); err != nil {
 				return err
 			}
+			nonBlockingBeat(beat)
 		}
 	}
 }
 
 func armedPowerTick(ctx context.Context, cfg config.Config, opts Options, controller *orchestrator.Controller, deps *dependencyTracker, latestHealth health.Snapshot, fsdClient *nut.Client) error {
-	upsStatus, err := opts.NUT.Query(ctx, nut.Target(cfg.NUT.UPSName, cfg.NUT.Host, cfg.NUT.Port))
+	target := nut.Target(cfg.NUT.UPSName, cfg.NUT.Host, cfg.NUT.Port)
+	upsStatus, err := opts.NUT.Query(ctx, target)
 	if err != nil {
+		opts.Log.Warn("UPS query failed; treating utility as UNKNOWN", "target", target, "error", err)
 		upsStatus = nut.Status{Utility: nut.UtilityUnknown}
 	}
+
+	now := time.Now()
+	systemSafe, systemHealthReason := systemHealthSafe(opts.SystemHealthStatePath, opts.SystemHealthMaxAge, now)
+	healthSafe := latestHealth.State == health.Healthy && systemSafe
 	networkReady := deps.Ready(ctx)
-	_, err = controller.Tick(ctx, time.Now(), policy.Inputs{
+	before := controller.Policy.State().PowerState
+	decision, err := controller.Tick(ctx, now, policy.Inputs{
 		UPS:          upsStatus,
 		NetworkReady: networkReady,
-		HealthSafe:   latestHealth.State == health.Healthy,
+		HealthSafe:   healthSafe,
 	})
 	if err != nil {
+		opts.Log.Error("armed orchestration failed",
+			"power_state", before,
+			"utility", upsStatus.Utility,
+			"error", err)
 		return fmt.Errorf("armed orchestration: %w", err)
+	}
+	afterState := controller.Policy.State()
+	if decision.Changed || decision.Action != policy.ActionNone || before != afterState.PowerState {
+		attrs := []any{
+			"from", before,
+			"to", afterState.PowerState,
+			"action", decision.Action,
+			"reason", decision.Reason,
+			"transaction_id", afterState.TransactionID,
+			"utility", upsStatus.Utility,
+			"raw_status", upsStatus.RawStatus,
+			"low_battery", upsStatus.LowBattery,
+			"fsd", upsStatus.FSD,
+			"network_ready", networkReady,
+			"agent_health", latestHealth.State,
+			"system_health_safe", systemSafe,
+			"system_health_reason", systemHealthReason,
+		}
+		if upsStatus.ChargePercent != nil {
+			attrs = append(attrs, "charge_percent", *upsStatus.ChargePercent)
+		}
+		if upsStatus.RuntimeSeconds != nil {
+			attrs = append(attrs, "runtime_seconds", *upsStatus.RuntimeSeconds)
+		}
+		opts.Log.Info("power state transition", attrs...)
 	}
 
 	// If there are no NUT-managed hosts, the controller still must be shut down
@@ -192,9 +241,12 @@ func armedPowerTick(ctx context.Context, cfg config.Config, opts Options, contro
 	// therefore safe and idempotent at the transaction level.
 	st := controller.Policy.State()
 	if st.ShutdownCommitted && st.PowerState == state.WaitingForAC && upsStatus.Utility == nut.UtilityOnBattery && cfg.NUT.Profile != "remote-client" && !hasNUTManagedHosts(cfg.Hosts) {
+		opts.Log.Info("requesting controller FSD", "transaction_id", st.TransactionID, "ups", cfg.NUT.UPSName)
 		if err := fsdClient.RequestFSD(ctx, cfg.NUT.UPSName, opts.UPSMonConfPath); err != nil {
+			opts.Log.Error("controller FSD request failed", "transaction_id", st.TransactionID, "error", err)
 			return fmt.Errorf("request controller FSD: %w", err)
 		}
+		opts.Log.Info("controller FSD requested", "transaction_id", st.TransactionID)
 	}
 	return nil
 }
@@ -227,6 +279,7 @@ func (p armedProber) Wait(ctx context.Context, h config.HostConfig, wantOnline b
 type armedWaker struct {
 	hosts  map[string]config.HostConfig
 	sender wol.Sender
+	log    *slog.Logger
 }
 
 func (w armedWaker) Wake(ctx context.Context, hostID string) error {
@@ -241,7 +294,19 @@ func (w armedWaker) Wake(ctx context.Context, hostID string) error {
 	if h.Wake.Interface != nil {
 		req.Interface = *h.Wake.Interface
 	}
-	return w.sender.Wake(ctx, req)
+	if w.log != nil {
+		w.log.Info("sending Wake-on-LAN", "host_id", hostID, "broadcast", req.Broadcast, "port", req.Port, "interface", req.Interface)
+	}
+	if err := w.sender.Wake(ctx, req); err != nil {
+		if w.log != nil {
+			w.log.Error("Wake-on-LAN failed", "host_id", hostID, "error", err)
+		}
+		return err
+	}
+	if w.log != nil {
+		w.log.Info("Wake-on-LAN sent", "host_id", hostID)
+	}
+	return nil
 }
 
 type armedRecoveryChecker struct {
