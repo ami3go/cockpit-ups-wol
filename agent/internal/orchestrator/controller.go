@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/ami3go/cockpit-ups-wol/agent/internal/config"
@@ -45,6 +46,7 @@ type Controller struct {
 	Recovery         RecoveryRunner
 	UPSMonConfPath   string
 	NewTransactionID func() string
+	Log              *slog.Logger
 
 	lastRecoveryWakeAt       time.Time
 	lastRecoveryWakeHostID   string
@@ -109,6 +111,18 @@ func (c *Controller) Tick(ctx context.Context, now time.Time, in policy.Inputs) 
 		}
 	}
 	return decision, nil
+}
+
+func (c *Controller) logInfo(message string, attrs ...any) {
+	if c.Log != nil {
+		c.Log.Info(message, attrs...)
+	}
+}
+
+func (c *Controller) logError(message string, attrs ...any) {
+	if c.Log != nil {
+		c.Log.Error(message, attrs...)
+	}
 }
 
 func (c *Controller) beginFreshOutage(ctx context.Context) error {
@@ -215,12 +229,16 @@ func (c *Controller) executeShutdown(ctx context.Context, now time.Time) error {
 		}
 		attempts := c.maxNUTAttempts(plan.NUTGroup)
 		if attempts >= maxNUTFSDShutdownAttempts {
-			return c.enterNUTGroupFailedSafe(plan.NUTGroup, fmt.Sprintf("NUT FSD exhausted %d attempts; native upsmon low-battery shutdown remains the fallback", maxNUTFSDShutdownAttempts))
+			reason := fmt.Sprintf("NUT FSD exhausted %d attempts; native upsmon low-battery shutdown remains the fallback", maxNUTFSDShutdownAttempts)
+			c.logError("NUT group FSD retries exhausted", "transaction_id", c.Policy.State().TransactionID, "attempts", attempts, "reason", reason)
+			return c.enterNUTGroupFailedSafe(plan.NUTGroup, reason)
 		}
 		tx := c.Policy.State().TransactionID
 		if !c.shouldAttemptNUTFSD(now, tx) {
 			return nil
 		}
+		attempt := attempts + 1
+		c.logInfo("requesting NUT group FSD", "transaction_id", tx, "attempt", attempt, "host_count", len(plan.NUTGroup), "ups", c.Config.NUT.UPSName)
 		if err := c.markNUTRequested(plan.NUTGroup); err != nil {
 			return fmt.Errorf("persist NUT FSD request state: %w", err)
 		}
@@ -229,10 +247,16 @@ func (c *Controller) executeShutdown(ctx context.Context, now time.Time) error {
 			if persistErr != nil {
 				return errors.Join(fmt.Errorf("request FSD: %w", err), fmt.Errorf("persist NUT FSD failure state: %w", persistErr))
 			}
-			c.scheduleNUTFSDRetry(now, tx, attempts+1)
+			c.scheduleNUTFSDRetry(now, tx, attempt)
+			delay := time.Until(c.nutFSDNextAttempt)
+			if delay < 0 {
+				delay = 0
+			}
+			c.logError("NUT group FSD request failed; retry scheduled", "transaction_id", tx, "attempt", attempt, "retry_after", delay.Round(time.Second), "error", err)
 			return nil
 		}
 		c.clearNUTFSDRetry(tx)
+		c.logInfo("NUT group FSD requested", "transaction_id", tx, "attempt", attempt, "host_count", len(plan.NUTGroup))
 		if err := c.markNUTAcknowledged(plan.NUTGroup); err != nil {
 			return fmt.Errorf("persist NUT FSD acknowledgement: %w", err)
 		}

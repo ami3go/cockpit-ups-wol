@@ -138,10 +138,7 @@ func runPassive(ctx context.Context, cfg config.Config, opts Options) error {
 		StatePath:         opts.HealthStatePath,
 		MaxRepairAttempts: cfg.Health.MaxRepairAttempts,
 	}
-	initial, err := supervisor.Run(ctx, false)
-	if err != nil {
-		return fmt.Errorf("initial health check: %w", err)
-	}
+	initial := runAgentHealth(ctx, supervisor, false, opts.Log)
 	opts.Log.Info("agent runtime initialized", "mode", cfg.Mode, "health_state", initial.State)
 
 	serverCtx, cancelServer := context.WithCancel(ctx)
@@ -195,17 +192,32 @@ func runPassive(ctx context.Context, cfg config.Config, opts Options) error {
 		case <-livenessTicker.C:
 			nonBlockingBeat(beat)
 		case <-healthTicker.C:
-			snap, err := supervisor.Run(ctx, cfg.Health.Autofix)
-			if err != nil {
-				opts.Log.Error("health supervisor run failed", "error", err)
-				return fmt.Errorf("health supervisor: %w", err)
-			}
+			snap := runAgentHealth(ctx, supervisor, cfg.Health.Autofix, opts.Log)
 			nonBlockingBeat(beat)
 			if snap.State != health.Healthy {
 				opts.Log.Warn("agent health degraded", "health_state", snap.State)
 			}
 		}
 	}
+}
+
+func runAgentHealth(ctx context.Context, supervisor *health.Supervisor, autofix bool, log *slog.Logger) health.Snapshot {
+	snap, err := supervisor.Run(ctx, autofix)
+	if err == nil {
+		return snap
+	}
+	log.Error("health supervisor run failed; continuing with critical degraded snapshot", "error", err)
+	failure := health.NewSnapshot()
+	failure.CheckedAt = time.Now().UTC()
+	failure.State = health.Degraded
+	failure.Results = []health.Result{{
+		Name:       "health.supervisor",
+		OK:         false,
+		Critical:   true,
+		Repairable: false,
+		Message:    err.Error(),
+	}}
+	return failure
 }
 
 func nonBlockingBeat(ch chan<- struct{}) {

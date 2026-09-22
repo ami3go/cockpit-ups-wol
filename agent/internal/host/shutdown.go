@@ -98,7 +98,15 @@ func (e ShutdownExecutor) shutdownSSH(ctx context.Context, h config.HostConfig) 
 	logger.Info("requesting SSH host shutdown", "host_id", h.ID, "timeout_seconds", int(timeout/time.Second))
 	out, err := e.runWithProgress(runCtx, runner, "ssh", args...)
 	if err != nil {
-		logger.Error("SSH host shutdown failed", "host_id", h.ID, "error", err)
+		diagnostic := strings.TrimSpace(string(out))
+		if len(diagnostic) > 2048 {
+			diagnostic = diagnostic[:2048] + "…"
+		}
+		attrs := []any{"host_id", h.ID, "error", err}
+		if diagnostic != "" {
+			attrs = append(attrs, "ssh_output", diagnostic)
+		}
+		logger.Error("SSH host shutdown failed", attrs...)
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			return ShutdownResult{}, fmt.Errorf("SSH shutdown failed: %w: %s", err, strings.TrimSpace(string(out)))
@@ -176,6 +184,10 @@ func ValidateArmedCapabilities(cfg config.Config) error {
 }
 
 func validateSSHLocalPrerequisites(address, keyPath string) error {
+	return validateSSHLocalPrerequisitesAt(address, keyPath, knownHostsPath)
+}
+
+func validateSSHLocalPrerequisitesAt(address, keyPath, hostsPath string) error {
 	keyPath = strings.TrimSpace(keyPath)
 	info, err := os.Stat(keyPath)
 	if err != nil {
@@ -187,7 +199,7 @@ func validateSSHLocalPrerequisites(address, keyPath string) error {
 	if info.Mode().Perm()&0o022 != 0 {
 		return fmt.Errorf("SSH key %s must not be group/world writable", keyPath)
 	}
-	return validateKnownHost(address, knownHostsPath)
+	return validateKnownHost(address, hostsPath)
 }
 
 func validateKnownHost(address, path string) error {
