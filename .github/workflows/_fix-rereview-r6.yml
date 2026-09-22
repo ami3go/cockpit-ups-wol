@@ -1,0 +1,36 @@
+name: fix-rereview-r6
+on:
+  push:
+    branches: [fix/rereview-r6-host-prereq-isolation]
+    paths:
+      - '.github/workflows/_fix-rereview-r6.yml'
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/rereview-r6-host-prereq-isolation
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.26.x'
+          cache-dependency-path: agent/go.sum
+      - name: Apply wiring
+        run: python3 .github/scripts/_apply_r6.py
+      - name: Format and focused tests
+        run: |
+          gofmt -w agent/internal/host/shutdown.go agent/internal/host/armed_runtime_validation.go agent/internal/host/armed_runtime_validation_test.go agent/internal/app/armed.go agent/internal/app/runtime_prerequisite_health.go agent/internal/app/runtime_prerequisite_health_test.go agent/cmd/cockpit-ups-wolctl/main.go
+          cd agent
+          go test ./internal/host ./internal/app ./cmd/cockpit-ups-wolctl
+      - name: Installer syntax
+        run: bash -n scripts/install/validate.sh
+      - name: Commit product changes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add agent scripts/install/validate.sh
+          git commit -m 'fix(armed): isolate mutable SSH prerequisite drift'
+          git push origin HEAD:fix/rereview-r6-host-prereq-isolation
