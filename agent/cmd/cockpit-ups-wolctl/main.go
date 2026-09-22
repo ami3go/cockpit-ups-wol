@@ -12,6 +12,7 @@ import (
 
 	"github.com/ami3go/cockpit-ups-wol/agent/internal/config"
 	"github.com/ami3go/cockpit-ups-wol/agent/internal/control"
+	"github.com/ami3go/cockpit-ups-wol/agent/internal/host"
 	"github.com/ami3go/cockpit-ups-wol/agent/internal/ipc"
 	"github.com/ami3go/cockpit-ups-wol/agent/internal/report"
 	"github.com/ami3go/cockpit-ups-wol/agent/internal/version"
@@ -83,6 +84,11 @@ func main() {
 		if err != nil {
 			fatal(err)
 		}
+		if cfg.Mode == "armed" {
+			if err := host.ValidateArmedCapabilities(cfg); err != nil {
+				fatal(err)
+			}
+		}
 		printJSON(struct {
 			Valid bool        `json:"valid"`
 			Plan  report.Plan `json:"plan"`
@@ -93,6 +99,15 @@ func main() {
 		content, err := readCandidate(os.Stdin)
 		if err != nil {
 			fatal(err)
+		}
+		cfg, err := config.Parse(content)
+		if err != nil {
+			fatal(err)
+		}
+		if cfg.Mode == "armed" {
+			if err := host.ValidateArmedCapabilities(cfg); err != nil {
+				fatal(err)
+			}
 		}
 		manifest, err := manager.Begin("cockpit", content)
 		if err != nil {

@@ -143,62 +143,36 @@ func (e ShutdownExecutor) runWithProgress(ctx context.Context, runner CommandRun
 	}
 }
 
-// ValidateArmedCapabilities rejects configuration features that do not yet have
-// a safe, tested v0.1 execution adapter. For SSH shutdown it also verifies the
-// local prerequisites that must exist before an outage: a readable private key
-// and an explicitly pinned host key in the project-owned known_hosts file.
+// PrerequisiteError identifies mutable host-local state that is required for
+// safe SSH shutdown. Human-controlled validation treats it as fatal; runtime
+// startup can isolate the affected host without disabling the fleet.
+type PrerequisiteError struct {
+	HostID string
+	Err    error
+}
+
+func (e *PrerequisiteError) Error() string {
+	return fmt.Sprintf("host %q SSH shutdown prerequisite: %v", e.HostID, e.Err)
+}
+func (e *PrerequisiteError) Unwrap() error { return e.Err }
+
+// ValidateArmedCapabilities is the strict human/preflight validator. Runtime
+// startup uses RuntimeArmedExclusions so mutable SSH state cannot crash-loop the
+// complete safety agent.
 func ValidateArmedCapabilities(cfg config.Config) error {
-	for _, dep := range cfg.Dependencies {
-		if dep.Status.Method == "arp" {
-			return fmt.Errorf("network dependency %q uses unsupported armed status method arp", dep.ID)
-		}
-		if dep.Status.Method == "none" || dep.Address == nil || strings.TrimSpace(*dep.Address) == "" {
-			return fmt.Errorf("network dependency %q cannot be verified in armed mode", dep.ID)
-		}
-		if err := validateEndpoint(*dep.Address); err != nil {
-			return fmt.Errorf("network dependency %q: %w", dep.ID, err)
-		}
-		if dep.Startup == "wol" {
-			return fmt.Errorf("network dependency %q uses startup=wol, which is disabled until dependency wake state is durable", dep.ID)
-		}
+	excluded, err := RuntimeArmedExclusions(cfg)
+	if err != nil {
+		return err
 	}
+	var errs []error
 	for _, h := range cfg.Hosts {
-		if h.Status.Method == "arp" {
-			return fmt.Errorf("host %q uses unsupported armed status method arp", h.ID)
+		reason, ok := excluded[h.ID]
+		if !ok {
+			continue
 		}
-		switch h.Shutdown.Method {
-		case "none", "nut":
-		case "ssh":
-			if h.Address == nil {
-				return fmt.Errorf("host %q SSH shutdown has no address", h.ID)
-			}
-			if err := validateEndpoint(*h.Address); err != nil {
-				return fmt.Errorf("host %q: %w", h.ID, err)
-			}
-			if h.Shutdown.SSHUser == nil || h.Shutdown.SSHKeyFile == nil {
-				return fmt.Errorf("host %q SSH shutdown is incomplete", h.ID)
-			}
-			if err := validateSSHLocalPrerequisites(*h.Address, *h.Shutdown.SSHKeyFile); err != nil {
-				return fmt.Errorf("host %q SSH shutdown prerequisite: %w", h.ID, err)
-			}
-		case "command":
-			return fmt.Errorf("host %q uses command shutdown, which is not available until the command registry is implemented", h.ID)
-		default:
-			return fmt.Errorf("host %q uses unsupported shutdown method %q", h.ID, h.Shutdown.Method)
-		}
-		if cfg.Recovery.Enabled && h.Wake.Enabled {
-			if h.Address == nil || h.Status.Method == "none" {
-				return fmt.Errorf("host %q wake is enabled but online state cannot be verified", h.ID)
-			}
-			if h.Wake.MAC == nil || strings.TrimSpace(*h.Wake.MAC) == "" {
-				return fmt.Errorf("host %q wake is enabled without a MAC address", h.ID)
-			}
-			if h.Wake.Broadcast == nil || strings.TrimSpace(*h.Wake.Broadcast) == "" {
-				return fmt.Errorf("host %q wake is enabled without an IPv4 broadcast address", h.ID)
-			}
-		}
+		errs = append(errs, &PrerequisiteError{HostID: h.ID, Err: errors.New(reason)})
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func validateSSHLocalPrerequisites(address, keyPath string) error {
