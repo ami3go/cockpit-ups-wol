@@ -10,9 +10,10 @@ import (
 )
 
 // systemHealthSafe reports whether the separate cockpit-ups-wol-health timer
-// has recently verified the required control-stack services. Missing, stale,
-// malformed, or non-HEALTHY snapshots fail closed for recovery, but callers can
-// continue outage monitoring and shutdown processing.
+// has recently verified the safety-critical control-stack services. Missing,
+// stale, malformed snapshots and failed critical checks fail closed for
+// recovery. Non-critical management-plane failures remain visible and
+// repairable without becoming a power-policy dependency.
 func systemHealthSafe(path string, maxAge time.Duration, now time.Time) (bool, string) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -37,12 +38,21 @@ func systemHealthSafe(path string, maxAge time.Duration, now time.Time) (bool, s
 			return false, fmt.Sprintf("system health snapshot stale (%s old)", age.Round(time.Second))
 		}
 	}
-	if snap.State != health.Healthy {
+	if snap.State == health.FailedSafe {
 		reason := string(snap.State)
 		if snap.Circuit.FailedReason != "" {
 			reason += ": " + snap.Circuit.FailedReason
 		}
 		return false, "system health " + reason
 	}
-	return true, "system health HEALTHY"
+	for _, result := range snap.Results {
+		if result.Critical && !result.OK {
+			reason := result.Name
+			if result.Message != "" {
+				reason += ": " + result.Message
+			}
+			return false, "critical control-stack check unhealthy: " + reason
+		}
+	}
+	return true, "critical control-stack checks healthy"
 }
