@@ -1,0 +1,47 @@
+name: apply-agpl-license
+on:
+  push:
+    branches: [chore/license-agpl-3-or-later]
+    paths:
+      - '.github/workflows/_apply-license.yml'
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: chore/license-agpl-3-or-later
+      - name: Install canonical SPDX license text
+        run: |
+          set -Eeuo pipefail
+          curl -fsSL 'https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/AGPL-3.0-or-later.txt' -o LICENSE
+          [[ "$(head -n 1 LICENSE)" == 'GNU AFFERO GENERAL PUBLIC LICENSE' ]]
+          grep -q '^Version 3, 19 November 2007$' LICENSE
+      - name: Update README licensing status
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('README.md')
+          s = p.read_text()
+          s = s.replace(
+              'The project is currently **pre-release**. The v0.1 software baseline is implemented and continuously tested, including armed orchestration, Cockpit management, transactional installation/rollback and multi-architecture packaging. It is **not yet release-ready** because representative physical UPS/DSM acceptance and the project-license decision are still open.',
+              'The project is currently **pre-release**. The v0.1 software baseline is implemented and continuously tested, including armed orchestration, Cockpit management, transactional installation/rollback and multi-architecture packaging. It is **not yet release-ready** because representative physical UPS/DSM acceptance is still open.'
+          )
+          s = s.replace('- project license selection and root `LICENSE`\n', '')
+          s = s.replace('Tagged release publication is intentionally blocked until a project license exists.\n\n', '')
+          old = '''## License\n\nA project license has not yet been selected. Do not assume permission to reuse project source code until a root `LICENSE` file is added.\n\nUpstream projects reviewed for possible reuse and their licenses are tracked in `THIRD_PARTY_NOTICES.md` and `docs/RELATED_PROJECTS.md`. No upstream source should be copied/adapted until the root license and the corresponding third-party obligations are resolved.'''
+          new = '''## License\n\nThis project is licensed under the **GNU Affero General Public License v3.0 or later**.\n\n`SPDX-License-Identifier: AGPL-3.0-or-later`\n\nSee the root `LICENSE` file for the complete license text. Upstream projects and third-party components retain their own licenses and attribution requirements; those are tracked in `THIRD_PARTY_NOTICES.md` and `docs/RELATED_PROJECTS.md`.'''
+          if old not in s:
+              raise SystemExit('README license section changed unexpectedly')
+          p.write_text(s.replace(old, new))
+          PY
+      - name: Commit license selection
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add LICENSE README.md
+          git commit -m 'chore: license project under AGPL-3.0-or-later'
+          git push origin HEAD:chore/license-agpl-3-or-later
