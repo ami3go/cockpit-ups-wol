@@ -70,8 +70,9 @@ A software/QEMU/`dummy-ups` result does not satisfy a real hardware gate.
 A v0.1 public/tagged release should not be created until:
 
 1. issue #10 has retained physical evidence for the required platforms and DSM;
-2. issue #12 has a selected root `LICENSE` and reuse/distribution review;
-3. the final release CI/package pipeline remains green on the release commit.
+2. the final release CI/package pipeline remains green on the release commit.
+
+The project license is selected as `AGPL-3.0-or-later`. Any future copied/adapted upstream source still requires per-component license compatibility and attribution review before inclusion.
 
 ## 5. Deferred enhancements
 

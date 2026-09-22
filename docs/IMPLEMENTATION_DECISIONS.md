@@ -1,7 +1,7 @@
 # v0.1 Implementation Decisions
 
 **Status:** Implemented/frozen v0.1 software baseline  
-**Release state:** software acceptance green; physical UPS/DSM acceptance and root license remain open
+**Release state:** software acceptance green; project licensed AGPL-3.0-or-later; physical UPS/DSM acceptance remains open
 
 ## 1. Agent
 

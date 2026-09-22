@@ -39,7 +39,6 @@ This roadmap tracks implementation and release readiness. An item is complete on
 - Physical full outage/recovery acceptance on a representative **amd64 controller + real supported UPS**.
 - Physical full outage/recovery acceptance on a representative **arm64 controller + real supported UPS**.
 - Real **Synology DSM** NUT-secondary shutdown/recovery acceptance.
-- Select and add the root project **LICENSE** before tagged public release/source reuse.
 
 These are intentionally not replaced by QEMU, `dummy-ups`, or documentation-only evidence.
 

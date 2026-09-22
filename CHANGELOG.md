@@ -28,6 +28,7 @@ All notable project changes are recorded here while the project is pre-release.
 - Generated NUT primary/secondary and Synology privilege integration gate.
 - Native amd64 plus QEMU arm64/riscv64 runtime smoke gates.
 - Hardware acceptance protocol and non-destructive hardware preflight helper.
+- Project licensing under GNU AGPL-3.0-or-later with canonical root `LICENSE`.
 
 ### Changed
 
@@ -52,6 +53,5 @@ All notable project changes are recorded here while the project is pre-release.
 
 ### Release blockers
 
-- Project license must be selected before tagged public release or copying/adapting upstream source.
 - Physical UPS acceptance remains required on representative amd64 and arm64 hardware.
 - Real Synology DSM NUT-secondary shutdown/recovery acceptance remains required.

@@ -13,8 +13,7 @@ No unresolved software-runtime P0/P1 blocker from that review remains. The proje
 A tagged public v0.1 release remains blocked by:
 
 1. **real hardware acceptance** — issue #10: amd64 + real supported UPS, arm64 + real supported UPS, and real Synology DSM NUT-secondary acceptance with retained evidence;
-2. **project license selection** — issue #12: project-owner/legal decision, root `LICENSE`, README/license compatibility review and third-party notice reconciliation;
-3. **main-branch protection** — issue #39: repository-admin configuration requiring PRs and green CI for `main`. The connected automation can create and merge PRs but cannot administer branch-protection settings.
+2. **main-branch protection** — issue #39: repository-admin configuration requiring PRs and green CI for `main`. The connected automation can create and merge PRs but cannot administer branch-protection settings.
 
 ## 2. Current readiness by area
 
@@ -48,7 +47,7 @@ A tagged public v0.1 release remains blocked by:
 | Real UPS amd64 | BLOCKED / NOT RUN | physical acceptance required |
 | Real UPS arm64 | BLOCKED / NOT RUN | physical acceptance required |
 | Real Synology DSM | BLOCKED / NOT RUN | physical DSM acceptance required |
-| Project license | BLOCKED | human project decision required |
+| Project license | READY | GNU AGPL-3.0-or-later; canonical root `LICENSE` present |
 | `main` protection | BLOCKED / ADMIN | issue #39; repository administration required |
 
 ## 3. Deep-review findings — closure
@@ -257,7 +256,7 @@ A public v0.1 tag is allowed only when all boxes below are satisfied:
 [ ] physical amd64 UPS acceptance retained
 [ ] physical arm64 UPS acceptance retained
 [ ] real Synology DSM acceptance retained
-[ ] root LICENSE selected and added
+[x] root LICENSE selected and added (`AGPL-3.0-or-later`)
 [ ] main branch protection configured (issue #39)
 ```
 
