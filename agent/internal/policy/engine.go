@@ -244,6 +244,15 @@ func (e *Engine) reconcileBoot(now time.Time, in Inputs) (Decision, error) {
 		return Decision{Changed: true, Action: ActionNone, Reason: "resumed recovery re-gated after boot"}, nil
 	}
 
+	if e.st.ShutdownCommitted && e.resumeState == state.OnBattery && in.UPS.Utility == nut.UtilityOnBattery {
+		// Recovery abort persists ON_BATTERY before the orchestrator opens the
+		// fresh outage transaction. If power is lost between those two durable
+		// writes, complete that transition now so restored hosts become shutdown
+		// targets again rather than parking forever in WAITING_FOR_AC.
+		e.st.PowerState = state.OnBattery
+		return Decision{Changed: true, Action: ActionStopRecovery, Reason: "completing interrupted recovery abort"}, nil
+	}
+
 	if e.st.ShutdownCommitted {
 		if in.UPS.Utility == nut.UtilityOnline {
 			if !recoveryEnabled(e.cfg) {

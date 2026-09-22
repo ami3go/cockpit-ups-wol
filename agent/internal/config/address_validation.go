@@ -35,8 +35,24 @@ func validHostname(v string) bool {
 	if v == "" || len(v) > 253 {
 		return false
 	}
-	for _, label := range strings.Split(v, ".") {
+	labels := strings.Split(v, ".")
+	if isAllDigits(labels[len(labels)-1]) {
+		return false
+	}
+	for _, label := range labels {
 		if !hostnameLabelPattern.MatchString(label) {
+			return false
+		}
+	}
+	return true
+}
+
+func isAllDigits(v string) bool {
+	if v == "" {
+		return false
+	}
+	for _, r := range v {
+		if r < '0' || r > '9' {
 			return false
 		}
 	}

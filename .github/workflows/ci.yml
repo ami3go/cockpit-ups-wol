@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.23.x'
+          go-version: '1.26.x'
           cache-dependency-path: agent/go.sum
       - name: Download dependencies
         run: go mod download
@@ -60,7 +60,7 @@ jobs:
         run: go vet ./...
       - name: Staticcheck
         run: |
-          go install honnef.co/go/tools/cmd/staticcheck@v0.5.1
+          go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
           staticcheck ./...
       - name: Build amd64
         env: {GOOS: linux, GOARCH: amd64}
@@ -79,8 +79,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          # Vulnerability analysis uses a maintained Go line even though the
-          # module retains Go 1.23 as its minimum language/toolchain target.
           go-version: '1.26.x'
           cache-dependency-path: agent/go.sum
       - name: Govulncheck
@@ -96,7 +94,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.23.x'
+          go-version: '1.26.x'
           cache-dependency-path: agent/go.sum
       - name: Install user-mode emulators
         run: |
@@ -121,7 +119,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Bash syntax
-        run: find . -type f -name '*.sh' -not -path './.git/*' -print0 | xargs -0 bash -n
+        run: find . -type f -name '*.sh' -not -path './.git/*' -print0 | xargs -0 -n1 bash -n
       - name: ShellCheck
         run: |
           sudo apt-get update
@@ -153,7 +151,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.23.x'
+          go-version: '1.26.x'
           cache-dependency-path: agent/go.sum
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:

@@ -18,7 +18,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.23.x'
+          go-version: '1.26.x'
           cache-dependency-path: agent/go.sum
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -33,6 +33,18 @@ jobs:
         env:
           VERSION: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('snapshot-{0}', github.sha) }}
         run: ./scripts/release/build-bundles.sh
+      - name: Scan shipped Go binaries
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+          rm -rf /tmp/cockpit-ups-wol-release-scan
+          mkdir -p /tmp/cockpit-ups-wol-release-scan
+          for archive in release/*.tar.gz; do
+            tar -xzf "$archive" -C /tmp/cockpit-ups-wol-release-scan
+          done
+          while IFS= read -r -d '' binary; do
+            govulncheck -mode=binary "$binary"
+          done < <(find /tmp/cockpit-ups-wol-release-scan -type f \
+            \( -name cockpit-ups-wol-agent -o -name cockpit-ups-wolctl -o -name cockpit-ups-wol-health -o -name wolctl \) -print0)
       - name: Verify checksums and package contents
         run: |
           cd release

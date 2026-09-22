@@ -194,7 +194,12 @@ func (m *Manager) promoteLocked(manifest *Manifest) error {
 	if err := m.writePointer("active", manifest.RevisionID); err != nil {
 		return err
 	}
-	return m.pruneRevisionsLocked(m.RevisionKeep)
+	// Everything above is the commit point. Retention cleanup must not make an
+	// already-active known-good revision look like a failed activation.
+	if err := m.pruneRevisionsLocked(m.RevisionKeep); err != nil {
+		fmt.Fprintf(os.Stderr, "cockpit-ups-wol: warning: revision pruning failed after successful promotion: %v\n", err)
+	}
+	return nil
 }
 func (m *Manager) rollbackLocked(ctx context.Context, failed Manifest, cause error, r Runtime) error {
 	failed.Status = RevisionFailed
