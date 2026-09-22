@@ -96,7 +96,7 @@ func StartWatchdog(ctx context.Context, beat <-chan struct{}, maxSilence time.Du
 					// Deliberately stop feeding systemd. Do not report this as an
 					// ordinary process error: the external watchdog is the recovery
 					// authority for a stalled event loop.
-					return
+					continue
 				}
 				if err := Watchdog(); err != nil {
 					ch <- err

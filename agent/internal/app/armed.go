@@ -80,27 +80,30 @@ func runArmed(ctx context.Context, cfg config.Config, opts Options) error {
 		}
 	}
 
-	probe := armedProber{checker: host.StatusChecker{}}
+	beat := make(chan struct{}, 1)
+	progress := func() { nonBlockingBeat(beat) }
+	checker := host.StatusChecker{Progress: progress}
+	probe := armedProber{checker: checker}
 	byID := make(map[string]config.HostConfig, len(cfg.Hosts))
 	for _, h := range cfg.Hosts {
 		byID[h.ID] = h
 	}
 	recovery := host.RecoveryExecutor{
 		Waker:   armedWaker{hosts: byID, sender: wol.Sender{}, log: opts.Log},
-		Checker: armedRecoveryChecker{hosts: byID, checker: host.StatusChecker{}},
+		Checker: armedRecoveryChecker{hosts: byID, checker: checker},
 		Store:   coord,
 	}
 	controller := &orchestrator.Controller{
 		Config:           cfg,
 		Policy:           coord,
 		Probe:            probe,
-		Shutdown:         host.ShutdownExecutor{},
+		Shutdown:         host.ShutdownExecutor{Log: opts.Log, Progress: progress},
 		FSD:              opts.NUT,
 		Recovery:         recovery,
 		UPSMonConfPath:   opts.UPSMonConfPath,
 		NewTransactionID: newTransactionID,
 	}
-	deps := newDependencyTracker(cfg.Dependencies)
+	deps := newDependencyTracker(cfg.Dependencies, checker)
 	controllerFSD := &controllerFSDTracker{}
 
 	serverCtx, cancelServer := context.WithCancel(ctx)
@@ -127,7 +130,6 @@ func runArmed(ctx context.Context, cfg config.Config, opts Options) error {
 		"power_state", controller.Policy.State().PowerState,
 		"config_revision", revision)
 
-	beat := make(chan struct{}, 1)
 	watchdogCh, err := opts.StartWatchdog(ctx, beat, 20*time.Second)
 	if err != nil {
 		return fmt.Errorf("start systemd watchdog: %w", err)
@@ -401,8 +403,8 @@ type dependencyTracker struct {
 	streaks map[string]int
 }
 
-func newDependencyTracker(deps []config.DependencyConfig) *dependencyTracker {
-	return &dependencyTracker{deps: deps, streaks: map[string]int{}}
+func newDependencyTracker(deps []config.DependencyConfig, checker host.StatusChecker) *dependencyTracker {
+	return &dependencyTracker{deps: deps, checker: checker, streaks: map[string]int{}}
 }
 
 func (t *dependencyTracker) Ready(ctx context.Context) bool {

@@ -32,10 +32,18 @@ func (ExecRunner) Run(ctx context.Context, name string, args ...string) ([]byte,
 }
 
 type StatusChecker struct {
-	Runner CommandRunner
+	Runner   CommandRunner
+	Progress func()
+}
+
+func (c StatusChecker) progress() {
+	if c.Progress != nil {
+		c.Progress()
+	}
 }
 
 func (c StatusChecker) Check(ctx context.Context, address string, cfg config.StatusConfig) (ProbeResult, error) {
+	defer c.progress()
 	method := cfg.Method
 	if method == "auto" {
 		if cfg.Port != nil {
