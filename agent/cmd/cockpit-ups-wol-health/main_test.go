@@ -52,3 +52,19 @@ func TestRequiredUnitsForExistingNUTDoesNotTakeOwnershipOfNUTUnits(t *testing.T)
 		t.Fatalf("units=%v want %v", got, want)
 	}
 }
+
+func TestCockpitIsManagementPlaneNotSafetyCritical(t *testing.T) {
+	if safetyCriticalUnit("cockpit.socket") {
+		t.Fatal("cockpit.socket must not gate power recovery")
+	}
+	for _, unit := range []string{
+		"cockpit-ups-wol-agent.service",
+		"nut-server.service",
+		"nut-monitor.service",
+		"cockpit-ups-wol-firewall.service",
+	} {
+		if !safetyCriticalUnit(unit) {
+			t.Fatalf("%s unexpectedly classified noncritical", unit)
+		}
+	}
+}
