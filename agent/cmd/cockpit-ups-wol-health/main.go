@@ -48,7 +48,7 @@ func main() {
 		Repairers:         map[string]health.Repairer{},
 	}
 	for _, unit := range units {
-		check := health.SystemdUnitCheck{Unit: unit, Critical: true}
+		check := health.SystemdUnitCheck{Unit: unit, Critical: safetyCriticalUnit(unit)}
 		s.Checks = append(s.Checks, check)
 		s.Repairers[check.Name()] = health.SystemdUnitRepair{Unit: unit}
 	}
@@ -61,6 +61,12 @@ func main() {
 	if snap.State == health.FailedSafe {
 		os.Exit(2)
 	}
+}
+
+// Cockpit is the management plane. It remains monitored and repairable, but
+// stopping it must never prevent outage handling or a safe power recovery.
+func safetyCriticalUnit(unit string) bool {
+	return unit != "cockpit.socket"
 }
 
 func requiredUnitsForConfig(cfg config.Config) []string {
