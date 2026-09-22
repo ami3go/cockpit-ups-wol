@@ -42,6 +42,24 @@ jobs:
           total="$(go tool cover -func=coverage.out | awk '/^total:/ {gsub(/%/,"",$3); print $3}')"
           echo "total coverage: $total% (required: >= 56%)"
           awk -v total="$total" 'BEGIN { if ((total + 0) < 56) exit 1 }'
+      - name: Safety package coverage floors
+        run: |
+          check_package() {
+            pkg="$1"
+            floor="$2"
+            output="$(go test -cover "./internal/$pkg")"
+            printf '%s\n' "$output"
+            coverage="$(sed -nE 's/.*coverage: ([0-9]+([.][0-9]+)?)% of statements.*/\1/p' <<<"$output" | tail -n1)"
+            [[ -n "$coverage" ]] || { echo "unable to parse coverage for $pkg" >&2; exit 1; }
+            awk -v got="$coverage" -v want="$floor" 'BEGIN { if ((got + 0) < (want + 0)) exit 1 }' || {
+              echo "coverage for internal/$pkg is $coverage%, required >= $floor%" >&2
+              exit 1
+            }
+          }
+          check_package policy 58
+          check_package orchestrator 68
+          check_package host 70
+          check_package state 73
       - name: Schema contract
         working-directory: .
         run: |
