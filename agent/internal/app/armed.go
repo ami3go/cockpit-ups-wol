@@ -45,10 +45,7 @@ func runArmed(ctx context.Context, cfg config.Config, opts Options) error {
 		StatePath:         opts.HealthStatePath,
 		MaxRepairAttempts: cfg.Health.MaxRepairAttempts,
 	}
-	latestHealth, err := supervisor.Run(ctx, false)
-	if err != nil {
-		return fmt.Errorf("initial health check: %w", err)
-	}
+	latestHealth := runAgentHealth(ctx, supervisor, false, opts.Log)
 
 	store := state.NewStore(opts.StateDir)
 	revision, err := configRevision(cfg)
@@ -114,6 +111,7 @@ func runArmed(ctx context.Context, cfg config.Config, opts Options) error {
 		Recovery:         recovery,
 		UPSMonConfPath:   opts.UPSMonConfPath,
 		NewTransactionID: newTransactionID,
+		Log:              opts.Log,
 	}
 	deps := newDependencyTracker(cfg.Dependencies, checker)
 	controllerFSD := &controllerFSDTracker{}
@@ -178,11 +176,7 @@ func runArmed(ctx context.Context, cfg config.Config, opts Options) error {
 				return fmt.Errorf("systemd watchdog: %w", err)
 			}
 		case <-healthTicker.C:
-			latestHealth, err = supervisor.Run(ctx, cfg.Health.Autofix)
-			if err != nil {
-				opts.Log.Error("health supervisor run failed", "error", err)
-				return fmt.Errorf("health supervisor: %w", err)
-			}
+			latestHealth = runAgentHealth(ctx, supervisor, cfg.Health.Autofix, opts.Log)
 			if latestHealth.State != health.Healthy {
 				opts.Log.Warn("agent health degraded", "health_state", latestHealth.State)
 			}
