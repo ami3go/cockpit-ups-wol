@@ -2,7 +2,7 @@
 
 `cockpit-ups-wol` is a small homelab UPS-management appliance built around Network UPS Tools (NUT), a persistent safety agent, Wake-on-LAN, and Cockpit.
 
-The project is currently **pre-release**. The v0.1 software baseline is implemented and continuously tested, including armed orchestration, Cockpit management, transactional installation/rollback and multi-architecture packaging. It is **not yet release-ready** because representative physical UPS/DSM acceptance and the project-license decision are still open.
+The project is currently **pre-release**. The v0.1 software baseline is implemented and continuously tested, including armed orchestration, Cockpit management, transactional installation/rollback and multi-architecture packaging. It is **not yet release-ready** because representative physical UPS/DSM acceptance is still open.
 
 ## Goals
 
@@ -62,7 +62,6 @@ Remaining v0.1 release gates:
 - physical full outage/recovery acceptance on a representative amd64 controller + real UPS
 - physical full outage/recovery acceptance on a representative arm64 controller + real UPS
 - real Synology DSM NUT-secondary shutdown/recovery acceptance
-- project license selection and root `LICENSE`
 
 The exact physical protocol is in `docs/HARDWARE_ACCEPTANCE.md`; software/QEMU simulation is not presented as a substitute for those tests.
 
@@ -147,8 +146,6 @@ CI currently gates:
 - Cockpit strict TypeScript/build validation
 - reproducible multi-architecture package generation and SHA256 verification
 
-Tagged release publication is intentionally blocked until a project license exists.
-
 ## Documentation
 
 Key design and operating documents include:
@@ -175,6 +172,8 @@ Key design and operating documents include:
 
 ## License
 
-A project license has not yet been selected. Do not assume permission to reuse project source code until a root `LICENSE` file is added.
+This project is licensed under the **GNU Affero General Public License v3.0 or later**.
 
-Upstream projects reviewed for possible reuse and their licenses are tracked in `THIRD_PARTY_NOTICES.md` and `docs/RELATED_PROJECTS.md`. No upstream source should be copied/adapted until the root license and the corresponding third-party obligations are resolved.
+`SPDX-License-Identifier: AGPL-3.0-or-later`
+
+See the root `LICENSE` file for the complete license text. Upstream projects and third-party components retain their own licenses and attribution requirements; those are tracked in `THIRD_PARTY_NOTICES.md` and `docs/RELATED_PROJECTS.md`.
