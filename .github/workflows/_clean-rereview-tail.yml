@@ -1,0 +1,29 @@
+name: clean-rereview-tail
+on:
+  push:
+    branches: [fix/rereview-tail-quality]
+    paths:
+      - '.github/workflows/_clean-rereview-tail.yml'
+permissions:
+  contents: write
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/rereview-tail-quality
+      - name: Remove generated UI artifacts from version control
+        run: |
+          git rm -r --ignore-unmatch cockpit/node_modules cockpit/dist
+          cat > .gitignore <<'EOF'
+          cockpit/node_modules/
+          cockpit/dist/
+          EOF
+          git add .gitignore
+      - name: Commit cleanup
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'chore: ignore generated Cockpit artifacts'
+          git push origin HEAD:fix/rereview-tail-quality
