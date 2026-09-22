@@ -22,7 +22,9 @@ jobs:
         with:
           node-version: '24.x'
       - name: Apply source changes
-        run: python3 .github/scripts/_apply_rereview_tail.py
+        run: |
+          python3 .github/scripts/_apply_rereview_tail.py
+          python3 .github/scripts/_fix_rereview_tail_test.py
       - name: Format and test Go
         run: |
           gofmt -w agent/internal/app/runtime.go agent/internal/app/armed.go agent/internal/app/health_supervisor_error_test.go \
