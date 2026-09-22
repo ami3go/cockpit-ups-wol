@@ -23,13 +23,25 @@ import (
 )
 
 func runArmed(ctx context.Context, cfg config.Config, opts Options) error {
-	if err := host.ValidateArmedCapabilities(cfg); err != nil {
+	excluded, err := host.RuntimeArmedExclusions(cfg)
+	if err != nil {
 		return fmt.Errorf("armed capability validation: %w", err)
 	}
+	runtimeCfg := host.RuntimeConfigWithExclusions(cfg, excluded)
 
 	target := nut.Target(cfg.NUT.UPSName, cfg.NUT.Host, cfg.NUT.Port)
+	checks := []health.Check{nutHealthCheck{client: opts.NUT, target: target}}
+	for _, h := range cfg.Hosts {
+		reason, ok := excluded[h.ID]
+		if !ok {
+			continue
+		}
+		opts.Log.Error("armed host prerequisite failed; host excluded from direct shutdown and recovery until fixed",
+			"host_id", h.ID, "error", reason)
+		checks = append(checks, runtimePrerequisiteCheck{hostID: h.ID, reason: reason})
+	}
 	supervisor := &health.Supervisor{
-		Checks:            []health.Check{nutHealthCheck{client: opts.NUT, target: target}},
+		Checks:            checks,
 		StatePath:         opts.HealthStatePath,
 		MaxRepairAttempts: cfg.Health.MaxRepairAttempts,
 	}
@@ -84,8 +96,8 @@ func runArmed(ctx context.Context, cfg config.Config, opts Options) error {
 	progress := func() { nonBlockingBeat(beat) }
 	checker := host.StatusChecker{Progress: progress}
 	probe := armedProber{checker: checker}
-	byID := make(map[string]config.HostConfig, len(cfg.Hosts))
-	for _, h := range cfg.Hosts {
+	byID := make(map[string]config.HostConfig, len(runtimeCfg.Hosts))
+	for _, h := range runtimeCfg.Hosts {
 		byID[h.ID] = h
 	}
 	recovery := host.RecoveryExecutor{
@@ -94,7 +106,7 @@ func runArmed(ctx context.Context, cfg config.Config, opts Options) error {
 		Store:   coord,
 	}
 	controller := &orchestrator.Controller{
-		Config:           cfg,
+		Config:           runtimeCfg,
 		Policy:           coord,
 		Probe:            probe,
 		Shutdown:         host.ShutdownExecutor{Log: opts.Log, Progress: progress},
@@ -204,7 +216,7 @@ func armedPowerTick(ctx context.Context, cfg config.Config, opts Options, contro
 		ObservedAtWallclock:   now.UTC().Format(time.RFC3339),
 	})
 	systemSafe, systemHealthReason := systemHealthSafe(opts.SystemHealthStatePath, opts.SystemHealthMaxAge, now)
-	healthSafe := latestHealth.State == health.Healthy && systemSafe
+	healthSafe := criticalAgentHealthSafe(latestHealth) && systemSafe
 	networkReady := deps.Ready(ctx)
 	before := controller.Policy.State().PowerState
 	decision, err := controller.Tick(ctx, now, policy.Inputs{
