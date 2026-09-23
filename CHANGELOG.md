@@ -17,6 +17,7 @@ All notable project changes are recorded here while the project is pre-release.
 - Minimal Unix-domain-socket agent IPC used by the health CLI path; privileged configuration management is implemented by `cockpit-ups-wolctl` and the revision manager.
 - Go agent/CLI implementation covering durable state, NUT/FSD policy, host adapters, WoL and health supervision.
 - Transactional installer with Ubuntu 24.04 NUT `dummy-ups`/systemd/Cockpit E2E and broken-upgrade rollback acceptance.
+- Systemd-enabled Debian-package installation matrix for Debian 12, Debian 13, Ubuntu 24.04 and Ubuntu 26.04, including APT dependency resolution, NUT dummy UPS setup, service/health/Cockpit verification and idempotent reinstall.
 - Guided installer TUI using `dialog` with `whiptail` fallback and the same backend as default/silent installation.
 - NUT local UPS discovery with explicit `--ups-driver` / `--ups-port` overrides and fail-safe ambiguity handling.
 - Optional project-owned restricted NUT nftables policy with IPv4/IPv6 coverage and no host firewall flush.
