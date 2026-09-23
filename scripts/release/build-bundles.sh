@@ -14,7 +14,7 @@ bins=(cockpit-ups-wol-agent cockpit-ups-wolctl cockpit-ups-wol-health wolctl)
 for arch in amd64 arm64 riscv64; do
   stage="$WORK/cockpit-ups-wol-$VERSION-linux-$arch"
   mkdir -p "$stage/dist/linux-$arch" "$stage/cockpit"
-  cp "$ROOT/install.sh" "$ROOT/README.md" "$ROOT/CHANGELOG.md" "$ROOT/THIRD_PARTY_NOTICES.md" "$stage/"
+  cp "$ROOT/install.sh" "$ROOT/README.md" "$ROOT/CHANGELOG.md" "$ROOT/THIRD_PARTY_NOTICES.md" "$ROOT/LICENSE" "$stage/"
   cp -a "$ROOT/scripts" "$ROOT/packaging" "$ROOT/config" "$ROOT/schemas" "$ROOT/docs" "$stage/"
   cp -a "$ROOT/cockpit/dist" "$stage/cockpit/"
   for n in "${bins[@]}"; do
