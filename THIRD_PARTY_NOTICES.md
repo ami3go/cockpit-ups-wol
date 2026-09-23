@@ -1,165 +1,75 @@
 # Third-Party Notices
 
-**Status:** Initial attribution register — no third-party source code has been copied into this repository at the time this file was created.
+**Project license:** GNU AGPL-3.0-or-later  
+**Status:** attribution/reuse register for the implemented `cockpit-ups-wol` codebase
 
-This file must be updated **before** any upstream code is copied or adapted.
+This repository now contains a substantial project-authored Go/TypeScript/Shell implementation in addition to design and operating documentation. The projects below have been reviewed as behavioral, architecture, UX or test references. Review/reference does **not** mean their source has been copied into this repository.
 
-## 1. Current status
+At the time of this documentation reconciliation, no reviewed upstream application source listed below is recorded as copied/adapted into the project. Runtime/build dependencies installed through Go/npm/distribution package managers remain governed by their own licenses and package metadata.
 
-The repository currently contains project-authored design/documentation only.
+This file must be updated **before** copied/adapted upstream source is merged.
 
-Related projects have been reviewed for patterns and potential reuse, but review/reference alone does not mean their source code has been incorporated.
+## Reuse procedure
 
-## 2. Reuse procedure
+For every copied/adapted source component:
 
-Before copying/adapting upstream source:
+1. record the upstream project/repository;
+2. record the exact source path;
+3. record the exact upstream commit/tag;
+4. record the license/SPDX identifier for the reused source;
+5. verify compatibility with `AGPL-3.0-or-later` and any additional upstream obligations;
+6. retain required copyright/license text;
+7. record the local destination and modifications;
+8. add the completed notice here before merge.
 
-1. record project/repository
-2. record exact source path
-3. record commit/tag
-4. record license/SPDX identifier
-5. confirm compatibility with this project's selected license
-6. retain required copyright/license text
-7. describe local modifications
-8. add the entry below before merging copied code
+No-license/unclear-license source remains reference-only until permission is established.
 
-## 3. Candidate upstreams
+## Runtime/platform dependencies
 
 ### Network UPS Tools (NUT)
 
 Repository: https://github.com/networkupstools/nut  
-Purpose: runtime dependency and authoritative behavior reference  
-Reuse intent: use installed NUT packages/services; do not copy driver source by default  
-License: project/file-specific; review exact files before copying
+Purpose: runtime UPS backend and authoritative NUT behavior reference  
+Reuse model: use distribution NUT packages/services; do not vendor driver/source code by default  
+License: component/file specific; review exact source before any copying
 
-### hardwarehaven/wolnut
+### Cockpit
 
-Repository: https://github.com/hardwarehaven/wolnut  
-Purpose: persisted recovery/state design reference  
-License: MIT  
-Current status: no source copied
+Repository: https://github.com/cockpit-project/cockpit  
+Purpose: management platform, authentication, bridge/service/journal APIs  
+Reuse model: system/runtime dependency and API reference; no blanket source-copy permission is inferred
 
-### world-wide-dev/nutcracker
+## Reviewed implementation/design references
 
-Repository: https://github.com/world-wide-dev/nutcracker  
-Purpose: deterministic shutdown/state-machine reference  
-License: MIT  
-Current status: no source copied
+| Project | Primary use in this project | Reported/reference license | Current source-reuse status |
+|---|---|---|---|
+| `hardwarehaven/wolnut` | persisted outage/recovery and prior-host-state reference | MIT | reference only; no source recorded as copied |
+| `world-wide-dev/nutcracker` | deterministic shutdown/state-machine reference | MIT | reference only |
+| `m4r1k/Eneru` | orchestration/testing/observability reference | MIT | reference only |
+| `wijits36/hypercore-power-manager` | shutdown/recovery lifecycle reference | MIT | reference only |
+| `ffind-dev/pve-ups` | Proxmox/dry-run/appliance reference | MIT | reference only |
+| `deviationist/cockpit-upside` | Cockpit + NUT UI/config reference | LGPL-2.1 (re-check exact files before reuse) | reference only |
+| `cockpit-project/starter-kit` | Cockpit frontend/build reference | LGPL-2.1 | reference only unless exact copied files are later recorded |
+| `JuanCF/nutwatch` | NUT config/USB/WoL/event patterns | MIT | reference only |
+| `rtorcato/homelab-nut` | Go/TUI/installer/inventory patterns | MIT | reference only |
+| `riofutab/nut-server` | Go persistence/idempotency/systemd patterns | MIT | reference only |
+| `Trugamr/wol` | compact WoL packet implementation reference | MIT | project has its own implementation; no copied source recorded |
+| `exelban/nutshell` | possible future native Go NUT client | MIT | reference only |
+| `ScottPierce/synology-ecoflow-nut` | Synology/NUT compatibility reference | GPL-2.0-or-later for project-authored files | reference only |
+| `Brandawg93/PeaNUT` | NUT dashboard/API UX reference | Apache-2.0 | reference only |
+| `SuperioOne/nut_webgui` | NUT dashboard/UX reference | Apache-2.0 | reference only |
+| `seriousm4x/UpSnap` | WoL host-management UX reference | MIT | reference only |
+| `geerlingguy/pi-nut` | SBC NUT deployment reference | GPL-3.0 | reference only |
 
-### m4r1k/Eneru
+The detailed research notes and links are maintained in `docs/RELATED_PROJECTS.md`.
 
-Repository: https://github.com/m4r1k/Eneru  
-Purpose: orchestration/testing/observability reference  
-License: MIT  
-Current status: no source copied
+## Companion test project
 
-### wijits36/hypercore-power-manager
+`ami3go/USB-UPS-Simulator` is a companion hardware/software test project for presenting a controllable USB HID UPS to NUT. It is useful for hardware-in-loop and fault-injection work, but it does **not** satisfy the real-UPS physical release gate by itself. No simulator source is recorded as copied into this repository.
 
-Repository: https://github.com/wijits36/hypercore-power-manager  
-Purpose: shutdown/recovery lifecycle reference  
-License: MIT  
-Current status: no source copied
+Before any simulator code is copied/adapted here, record the exact source revision and license obligations using the same procedure above.
 
-### ffind-dev/pve-ups
-
-Repository: https://github.com/ffind-dev/pve-ups  
-Purpose: Proxmox shutdown/dry-run/appliance reference  
-License: MIT  
-Current status: no source copied
-
-### deviationist/cockpit-upside
-
-Repository: https://github.com/deviationist/cockpit-upside  
-Purpose: Cockpit + NUT UI/config patterns  
-License: LGPL-2.1 (repository metadata/reviewed source; re-check exact files before reuse)  
-Current status: no source copied
-
-### cockpit-project/starter-kit
-
-Repository: https://github.com/cockpit-project/starter-kit  
-Purpose: intended Cockpit frontend foundation  
-License: LGPL-2.1  
-Current status: not yet copied
-
-### JuanCF/nutwatch
-
-Repository: https://github.com/JuanCF/nutwatch  
-Purpose: NUT config/USB/WoL/event patterns  
-License: MIT  
-Current status: no source copied
-
-### rtorcato/homelab-nut
-
-Repository: https://github.com/rtorcato/homelab-nut  
-Purpose: Go/TUI/installer/inventory patterns  
-License: MIT  
-Current status: no source copied
-
-### riofutab/nut-server
-
-Repository: https://github.com/riofutab/nut-server  
-Purpose: Go persistent orchestration/systemd-hardening patterns  
-License: MIT  
-Current status: no source copied
-
-### Trugamr/wol
-
-Repository: https://github.com/Trugamr/wol  
-Purpose: possible Go Wake-on-LAN packet implementation reuse  
-License: MIT  
-Current status: no source copied
-
-If code is adapted, record exact package/file/commit and retain the MIT notice.
-
-### exelban/nutshell
-
-Repository: https://github.com/exelban/nutshell  
-Purpose: possible future native Go NUT client reference  
-License: MIT  
-Current status: no source copied
-
-### ScottPierce/synology-ecoflow-nut
-
-Repository: https://github.com/ScottPierce/synology-ecoflow-nut  
-Purpose: Synology/NUT compatibility and security reference  
-License: GPL-2.0-or-later for project-authored files  
-Current status: reference only; no source copied
-
-### Brandawg93/PeaNUT
-
-Repository: https://github.com/Brandawg93/PeaNUT  
-Purpose: NUT dashboard/API UX reference  
-License: Apache-2.0  
-Current status: no source copied
-
-### SuperioOne/nut_webgui
-
-Repository: https://github.com/SuperioOne/nut_webgui  
-Purpose: NUT dashboard/UX reference  
-License: Apache-2.0  
-Current status: no source copied
-
-### seriousm4x/UpSnap
-
-Repository: https://github.com/seriousm4x/UpSnap  
-Purpose: Wake-on-LAN host management UX reference  
-License: MIT  
-Current status: no source copied
-
-### geerlingguy/pi-nut
-
-Repository: https://github.com/geerlingguy/pi-nut  
-Purpose: operational/deployment reference  
-License: GPL-3.0  
-Current status: reference only; no source copied
-
-## 4. No-license sources
-
-A repository/source without an explicit compatible license must remain reference-only. No source text is copied unless permission/license is established.
-
-## 5. Future incorporated-code entry format
-
-When source is actually incorporated, add an entry like:
+## Future incorporated-code entry format
 
 ```text
 Component: <local package/path>
@@ -168,6 +78,7 @@ Upstream path: <path>
 Upstream commit/tag: <sha/tag>
 License: <SPDX>
 Copyright: <upstream notice>
+Local destination: <path>
 Modifications: <summary>
 License notice retained at: <path>
 ```

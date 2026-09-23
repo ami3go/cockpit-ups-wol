@@ -1,20 +1,18 @@
 # Configuration Model
 
-**Status:** Normative v0.1 user configuration
+**Status:** Normative v0.1 user configuration  
+**Schema:** `schemas/config.schema.json`  
+**Example:** `config/config.yaml.example`
 
-The authoritative schema is `schemas/config.schema.json`. The reference configuration is `config/config.yaml.example`.
+The schema describes parseable configuration. Some values are reserved for future features and are intentionally rejected by armed-v0.1 safety validation; schema presence alone does not mean a capability is accepted for automatic execution.
 
-## 1. File location
-
-The active configuration is:
+## 1. Active configuration
 
 ```text
 /etc/cockpit-ups-wol/config.yaml
 ```
 
-It SHALL be changed through the project's transaction manager when using Cockpit, CLI/TUI, installer, upgrade or autofix.
-
-Manual editing is permitted for administrators, but it creates configuration drift until the transaction/health manager imports or validates the change.
+Project-mediated changes from Cockpit, installer, CLI/TUI, upgrade or autofix use the transactional revision manager. Manual administrator edits create drift until validated/reconciled.
 
 ## 2. Schema version
 
@@ -22,7 +20,7 @@ Manual editing is permitted for administrators, but it creates configuration dri
 config_version: 1
 ```
 
-Unknown newer schema versions SHALL be rejected rather than overwritten.
+Unknown newer versions are rejected rather than overwritten.
 
 ## 3. Operating mode
 
@@ -34,14 +32,16 @@ Allowed values:
 
 ```text
 monitor
- dry-run
- armed
- maintenance
+dry-run
+armed
+maintenance
 ```
 
 New installations default to `dry-run`.
 
 ## 4. NUT profile
+
+Example:
 
 ```yaml
 nut:
@@ -49,13 +49,17 @@ nut:
   ups_name: ups
   host: localhost
   port: 3493
+  hosts_sync_seconds: 60
+  final_delay_seconds: 15
 ```
 
 Profiles:
 
-- `local-server` — controller owns locally attached UPS, runs driver/upsd/primary upsmon.
-- `remote-client` — reads a remote NUT server and does not automatically assume primary/FSD authority.
-- `existing` — integrates with an existing local NUT deployment without blindly rewriting it.
+- `local-server` — controller owns the locally attached UPS and validated primary/FSD path;
+- `remote-client` — reads a remote NUT server and does not automatically inherit primary/FSD authority;
+- `existing` — integrates conservatively with existing local NUT configuration.
+
+`hosts_sync_seconds` and `final_delay_seconds` are canonical project settings used when rendering managed `upsmon.conf`; they are not cosmetic UI-only fields.
 
 `power_cycle_capability` is one of:
 
@@ -65,7 +69,7 @@ POWER_CYCLE_UNVERIFIED
 MONITOR_ONLY
 ```
 
-This classification gates unattended controller power-off/restart behavior.
+This classification gates unattended controller power-off/restart assumptions.
 
 ## 5. Synology compatibility
 
@@ -79,7 +83,7 @@ nut:
     password: secret
 ```
 
-The compatibility account remains monitor-only and uses NUT secondary semantics.
+The compatibility account remains monitor-only and uses NUT secondary semantics. It must not receive actions/instant-command/FSD authority.
 
 ## 6. Outage policy
 
@@ -92,9 +96,9 @@ outage:
   communication_loss_grace_seconds: 30
 ```
 
-Trigger precedence is defined in `docs/POWER_POLICY.md`.
+A `null` optional threshold disables that optional trigger. `FSD`/low-battery safety behavior remains authoritative regardless of optional thresholds.
 
-A `null` optional trigger means it is disabled. `FSD` and `LB` remain safety-critical regardless of optional thresholds.
+Trigger precedence and debounce semantics are defined in `docs/POWER_POLICY.md`.
 
 ## 7. Controller requirements
 
@@ -104,7 +108,7 @@ controller:
   require_auto_power_on: true
 ```
 
-Both are mandatory v0.1 safety requirements. They are represented in configuration so installer/TUI/Cockpit can show compliance status, not so users can disable them.
+These are v0.1 safety requirements. They exist in configuration so installer/TUI/Cockpit can represent compliance; they are not intended as switches to bypass the deployment model.
 
 ## 8. Recovery policy
 
@@ -118,13 +122,15 @@ recovery:
   network_wait_seconds: 300
 ```
 
-Fallback order:
+`recovery.enabled: false` is a hard automatic-recovery gate, including boot reconciliation.
+
+Recovery fallback order:
 
 ```text
-battery charge → runtime → configured recharge time → manual
+battery charge -> runtime -> configured recharge time -> manual
 ```
 
-Missing data never silently satisfies a recovery gate.
+Missing data never silently satisfies a gate.
 
 ## 9. Health policy
 
@@ -137,35 +143,35 @@ health:
   max_repair_attempts: 5
 ```
 
-Health autofix remains bounded by `docs/RELIABILITY_REQUIREMENTS.md` and must not perform destructive power actions simply to make a health check pass.
+Autofix is bounded and may repair project-owned runtime/service/config state. It does not wake/shut down hosts or issue destructive UPS commands simply to make health green.
 
 ## 10. Network dependencies
 
-Use `network_dependencies` for switches, routers or other infrastructure that must become reachable before managed hosts are restored.
+Use `network_dependencies` for switches, routers or infrastructure that must be ready before managed-host recovery.
 
-Example:
+Accepted v0.1 startup behavior:
+
+- `auto-power` — device is expected to start automatically when backed power is available;
+- `wait-only` — power is external/manual and the agent waits for readiness.
+
+The schema also contains `startup: wol`, but **dependency WoL is not an accepted armed-v0.1 capability**. Armed validation fails closed until dependency actions have durable request/retry/reconciliation semantics equivalent to managed-host actions.
+
+Example accepted dependency:
 
 ```yaml
 network_dependencies:
   - id: core-switch
     startup: auto-power
     priority: 1
+    address: 192.168.1.2
     status:
       method: tcp
       port: 22
-    wake:
-      enabled: false
 ```
-
-Startup modes:
-
-- `auto-power` — expected to start automatically when power is available.
-- `wait-only` — external/manual power; the agent waits for readiness.
-- `wol` — dependency may be awakened with WoL.
 
 ## 11. Managed hosts
 
-Each host has:
+Each host may define:
 
 ```text
 id
@@ -180,6 +186,8 @@ restore_policy
 
 ### Status methods
 
+Schema values include:
+
 ```text
 auto
 ping
@@ -188,9 +196,11 @@ arp
 none
 ```
 
-A positive/negative state normally requires multiple consecutive observations rather than one probe.
+For **armed v0.1**, accepted deterministic verification paths are TCP/ping (or adapter-specific logic where implemented). ARP-only verification intentionally fails closed in armed mode. A host is not considered offline/online from one transient observation; configured consecutive verification is required.
 
 ### Shutdown methods
+
+Schema values include:
 
 ```text
 nut
@@ -199,9 +209,15 @@ command
 none
 ```
 
-`command` references an allowlisted `command_id`; arbitrary UI-supplied shell text is not accepted.
+Accepted armed-v0.1 behavior:
 
-Lower shutdown priority executes first for pre-FSD managed hosts. NUT secondaries form a synchronized FSD group as described in `docs/NUT_SHUTDOWN_MODEL.md`.
+- `nut` — host participates in the NUT secondary/FSD shutdown group;
+- `ssh` — fixed-argv constrained remote shutdown with bounded retry/reconciliation;
+- `none` — observe/manage state without controller-issued shutdown.
+
+`command` is **reserved but not accepted in armed v0.1**. No arbitrary shell source is executed, and no command registry is treated as complete until it has its own durable/safe execution model and acceptance suite.
+
+Lower shutdown priority executes first for pre-FSD direct hosts. NUT secondaries form a synchronized group as described in `docs/NUT_SHUTDOWN_MODEL.md`.
 
 ### Restore policy
 
@@ -211,67 +227,68 @@ always
 never
 ```
 
-Default: `previous-state`.
+Default: `previous-state`. Unknown pre-outage state is not treated as online.
 
-### Wake settings
+### Managed-host Wake-on-LAN
 
-Wake supports MAC, interface, broadcast, UDP port, priority, inter-host delay and bounded retry count.
+Managed-host wake supports MAC, interface, broadcast, UDP port, priority, inter-host delay and bounded retry count. Wake intent/attempt state is durable and reconciled after restart.
+
+This managed-host implementation must not be confused with the currently unsupported dependency-WoL path.
 
 ## 12. Secrets
 
-Long-lived secrets SHOULD NOT be embedded directly in ordinary configuration except where compatibility requires a known credential (notably optional DSM compatibility).
-
-SSH private keys and future privileged NUT/API credentials live under a protected secrets directory, for example:
+Long-lived secrets should be referenced from protected files where practical, for example:
 
 ```text
 /etc/cockpit-ups-wol/secrets/
 ```
 
-Expected permissions:
+Expected protection:
 
 ```text
-root-owned or dedicated service-owned
-0600 private files
 0700 secrets directory where practical
+0600 private secret/key files
+root or dedicated service ownership
 ```
 
-Secrets SHALL be redacted from logs, configuration diagnostics and revision diffs shown in Cockpit.
+Secrets are redacted from logs, diagnostics and Cockpit revision summaries.
 
 ## 13. Transactional activation
 
-Configuration changes follow:
-
 ```text
 candidate
-→ schema validation
-→ cross-reference validation
-→ component preflight
-→ atomic activation
-→ service reload/restart
-→ immediate health checks
-→ probation
-→ known-good OR rollback
+-> syntax/schema/semantic validation
+-> cross-reference and armed-capability validation
+-> component preflight
+-> atomic activation
+-> service reload/restart
+-> immediate health checks
+-> probation
+-> known-good OR rollback
 ```
 
-A candidate is never promoted solely because the machine rebooted successfully.
+A candidate is never promoted merely because the controller rebooted successfully.
 
-## 14. Cross-reference validation
+`cockpit-ups-wolctl config-apply` starts activation/probation in a transient systemd unit so browser/channel loss does not terminate the transaction.
 
-The transaction manager SHALL reject at least:
+## 14. Validation examples
 
-- duplicate host/dependency IDs
-- references to unknown dependencies
-- invalid MAC addresses
-- TCP status without a valid port
-- WoL enabled without MAC
-- SSH shutdown without required user/key reference
-- command shutdown with unknown command ID
-- restricted NUT mode that leaves an enabled address family unintentionally unrestricted
-- local automatic controller shutdown when UPS power-cycle capability is not verified and no alternate restart mechanism exists
+Validation rejects or prevents arming for conditions including:
 
-## 15. Defaults
+- duplicate host/dependency IDs;
+- unknown dependency references or recovery cycles;
+- invalid MAC/IP/port values;
+- TCP verification without a valid port;
+- managed-host WoL enabled without the required MAC/broadcast data;
+- SSH shutdown missing required user/key information;
+- armed `shutdown.method: command`;
+- armed ARP-only host verification;
+- armed dependency WoL;
+- unsafe/ambiguous NUT FSD ownership;
+- restricted NUT policy that leaves an enabled address family unintentionally exposed;
+- automatic controller shutdown assumptions without a verified output-return or alternate restart mechanism.
 
-Important defaults:
+## 15. Important defaults
 
 ```text
 mode                         dry-run
@@ -283,6 +300,8 @@ utility stability            120 s
 battery recovery threshold   80%
 network wait                 300 s
 outage grace                 120 s
+HOSTSYNC                     60 s
+FINALDELAY                   15 s
 health interval              60 s
 config probation             60 s
 restore policy               previous-state
@@ -290,6 +309,4 @@ restore policy               previous-state
 
 ## 16. Compatibility and migration
 
-Configuration migration SHALL create a candidate revision rather than rewriting the only active copy in place.
-
-Migration is committed only after the migrated stack passes validation/probation. Otherwise the prior known-good revision remains active.
+Migration creates a candidate revision rather than rewriting the only active copy in place. The migrated configuration becomes known-good only after validation/probation; otherwise the prior known-good revision remains/restores active.

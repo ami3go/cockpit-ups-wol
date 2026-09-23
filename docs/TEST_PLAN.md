@@ -1,333 +1,319 @@
 # v0.1 Test and Acceptance Plan
 
-**Status:** Normative release-gate plan
+**Status:** Normative release-gate plan for the accepted v0.1 feature set
 
 ## 1. Test layers
 
 ```text
 unit
 component/integration
-simulation/fault injection
-clean-OS installer
-hardware-in-loop
-release/upgrade
+state-machine/fault injection
+clean-OS/systemd installer E2E
+multi-architecture runtime smoke
+optional USB-UPS-Simulator hardware-in-loop
+real UPS / DSM physical acceptance
+release/governance checks
 ```
 
-A v0.1 release SHALL pass all mandatory non-hardware tests and the defined hardware acceptance matrix.
+A v0.1 release must pass all mandatory automated tests plus the defined real-hardware acceptance and repository-governance gates.
 
-## 2. Unit tests
+The schema includes some future-facing values. Tests must distinguish **accepted v0.1 functionality** from **fail-closed reserved functionality**.
+
+## 2. Unit/component tests
 
 ### NUT parser/normalizer
 
-- parse `OL`
-- parse `OB`
-- parse compound status such as `OL CHRG`, `OB LB`
-- parse `FSD`
-- malformed/missing status → UNKNOWN
-- failed `upsc` → UNKNOWN
-- missing charge remains unavailable, never 100%
+- `OL`, `OB`, `LB`, `FSD` and compound states;
+- malformed/missing status -> `UNKNOWN`;
+- failed `upsc` -> `UNKNOWN`;
+- missing charge/runtime remains unavailable, never assumed healthy/full.
 
-### WoL
+### Managed-host WoL
 
-- exact 102-byte magic packet
-- six `FF` sync bytes
-- MAC repeated 16 times
-- invalid MAC rejected
-- interface/broadcast/port validation
+- exact magic packet construction;
+- MAC/interface/broadcast/port validation;
+- bounded retry state;
+- durable `wol_sent` before side effect;
+- reboot reconciliation;
+- inter-host delay survives/restarts conservatively.
 
 ### Configuration
 
-- valid reference example passes
-- unknown field rejected where schema forbids it
-- invalid ranges rejected
-- duplicate host/dependency ID semantic error
-- missing dependency semantic error
-- WoL enabled without MAC rejected
-- SSH method without required credential reference rejected
-- unknown command ID rejected
+- canonical example parses;
+- unknown/invalid fields/ranges rejected where required;
+- duplicate host/dependency IDs rejected;
+- missing dependency references rejected;
+- dependency cycles rejected;
+- unsafe timing/range values rejected;
+- SSH shutdown missing required credentials rejected;
+- managed-host WoL missing MAC/broadcast rejected;
+- armed `shutdown.method: command` rejected;
+- armed ARP-only verification rejected;
+- armed dependency WoL rejected.
 
 ### State store
 
-- deterministic checksum
-- sequence increments
-- current valid read
-- current corrupt + previous valid fallback
-- both corrupt → FAILED_SAFE
-- unsupported newer state version is not overwritten
+- deterministic checksum;
+- sequence increments;
+- valid current read;
+- corrupt/torn current + valid previous fallback;
+- previous generation is not destroyed before new current is durable;
+- both invalid -> `FAILED_SAFE`;
+- unsupported newer state version not overwritten.
 
 ## 3. Power policy simulation
 
-Required transitions:
+Required transitions include:
 
 ```text
-BOOT_RECONCILE → NORMAL
-NORMAL → ON_BATTERY
-ON_BATTERY → NORMAL before commit
-ON_BATTERY → SHUTDOWN_COMMITTED
-SHUTDOWN_COMMITTED → SHUTDOWN_IN_PROGRESS
-SHUTDOWN_IN_PROGRESS → WAITING_FOR_AC
-WAITING_FOR_AC → RECOVERY_WAIT
-RECOVERY_WAIT → RECOVERY_STARTED
-RECOVERY_STARTED → RESTORE_HOSTS
-RESTORE_HOSTS → NORMAL
-any unrecoverable safety state → FAILED_SAFE
+BOOT_RECONCILE -> NORMAL
+NORMAL -> ON_BATTERY
+ON_BATTERY -> NORMAL before commit after debounced OL
+ON_BATTERY -> SHUTDOWN_COMMITTED
+SHUTDOWN_COMMITTED -> SHUTDOWN_IN_PROGRESS
+SHUTDOWN_IN_PROGRESS -> WAITING_FOR_AC
+WAITING_FOR_AC -> RECOVERY_WAIT
+RECOVERY_WAIT -> RECOVERY_STARTED
+RECOVERY_STARTED -> RESTORE_HOSTS
+RESTORE_HOSTS -> NORMAL
+unrecoverable uncertainty -> FAILED_SAFE
 ```
 
-## 4. Trigger precedence
+Also test a renewed outage during `RESTORE_HOSTS`: it creates a fresh outage epoch, stops further wake actions and makes already-restored online hosts eligible for shutdown again according to policy.
+
+## 4. Trigger and communication-loss behavior
 
 Test:
 
-- ordinary OB + grace
-- max time-on-battery trigger
-- critical charge trigger
-- critical runtime trigger
-- OB+LB immediate commit
-- FSD immediate commit
-- communication loss during NORMAL
-- communication loss during ON_BATTERY
-- power restoration before commit
-- power restoration after commit
+- ordinary OB + grace;
+- critical runtime/charge/max-on-battery triggers;
+- OB+LB and FSD commit behavior;
+- communication loss while normal and on battery;
+- configured communication-loss grace exhaustion;
+- reboot during persisted on-battery state does not grant fresh grace;
+- two consecutive online samples required to cancel an uncommitted outage;
+- online state after shutdown commit does not erase the committed transaction.
 
 ## 5. Recovery gates
 
 Test:
 
-- ONLINE for < stable interval: no wake
-- 120 s continuous ONLINE: stability gate passes
-- OB inside stability interval resets timer
-- communication loss inside stability interval resets proof
-- reboot invalidates unfinished stability timer
-- charge 79%: no wake
-- charge 80%: entry gate passes
-- charge 80% then 79% after RECOVERY_STARTED: continue if utility remains safe
-- missing charge uses runtime fallback
-- missing charge/runtime uses configured recharge-time fallback
-- no usable fallback requires manual recovery
+- online for less than stable interval: no wake;
+- continuous online through configured interval: stability passes;
+- OB/communication loss/reboot resets stability proof;
+- `recovery.enabled: false` blocks automatic recovery including boot reconciliation;
+- charge below/at default 80% boundary;
+- runtime fallback;
+- configured recharge-time fallback;
+- missing usable evidence -> manual recovery;
+- network timeout and critical-health failure inhibit further restore;
+- post-`RECOVERY_STARTED` small charge drop alone does not reverse recovery while utility remains safe.
 
-## 6. Interrupted boot
+## 6. Interrupted boot/shutdown/recovery
 
-Fault-injection cases:
-
-```text
-power loss before agent starts
-power loss during NUT startup
-power loss during BOOT_RECONCILE
-repeated boot interruptions
-boot while UPS still OB
-boot with NUT unavailable
-boot with OL but battery below recovery threshold
-boot during active candidate config validation
-```
-
-No case may wake hosts solely because Linux booted.
-
-## 7. Interrupted shutdown
-
-For each interruption point:
+Fault-injection coverage includes:
 
 ```text
-before SHUTDOWN_COMMITTED persist
-after commit persist but before first command
-after shutdown request before acknowledgement
-after acknowledgement before verification
-after some hosts complete
-immediately before FSD request
-after FSD request
+power/service loss before agent startup
+NUT unavailable during boot
+repeated controller reboot during outage
+reboot during stable-AC timer
+reboot during candidate configuration validation/probation
+loss immediately after SHUTDOWN_COMMITTED persist
+loss after shutdown requested but before verification
+loss after FSD request
+loss immediately after RECOVERY_STARTED persist
+reboot after wol_sent
+power failure after one or more hosts restored
 ```
 
-Restart must reconcile instead of blindly repeating unsafe actions.
+Restart must reconcile real state rather than blindly repeat non-idempotent actions.
 
-## 8. Interrupted recovery
+## 7. Direct host adapters
 
-Cases:
-
-```text
-before RECOVERY_STARTED persist
-after persist before first WoL
-after first WoL before verification
-after one host online
-power fails during RESTORE_HOSTS
-agent/controller reboot during RESTORE_HOSTS
-```
-
-Previously-off hosts remain off under `previous-state`.
-
-## 9. NUT primary/secondary integration
-
-Use a test NUT environment with primary and one/multiple secondaries.
-
-Verify:
-
-- agent requests FSD only through primary `upsmon`
-- secondaries observe FSD and enter shutdown path
-- primary waits according to HOSTSYNC
-- controller/primary is last
-- agent never invokes late driver poweroff directly
-- remote-client mode does not issue FSD
-
-Hardware test final output-cycle behavior separately.
-
-## 10. Synology acceptance
-
-At minimum validate on supported DSM environment:
-
-- NAS can connect to controller NUT TCP 3493
-- UPS name `ups` is accepted
-- `monuser` compatibility works where required
-- account is monitor-only
-- DSM observes expected OL/OB/FSD behavior
-- safe DSM shutdown occurs through native NUT path
-- agent does not send duplicate SSH shutdown for `method: nut`
-
-## 11. Host adapters
-
-### SSH
-
-- dedicated key accepted
-- wrong key rejected
-- changed host key rejected
-- timeout bounded
-- no shell interpolation injection
-
-### command
-
-- known command ID executes expected argv
-- unknown command ID rejected
-- user-supplied shell text cannot execute
-
-### status
-
-For ping/tcp/arp/adapters:
-
-- one transient failure does not mark offline
-- 3 configured consecutive failures marks shutdown verification
-- 3 consecutive successes marks recovered/online
-
-## 12. Network dependencies
+### Accepted SSH path
 
 Test:
 
-- auto-power switch unavailable delays dependent wake
-- dependency becomes ready and recovery continues
-- wait-only dependency timeout is surfaced without false success
-- WoL-capable dependency can be ordered first
-- no Internet dependency is required unless explicitly configured
+- dedicated key/known host accepted;
+- wrong key or changed host key rejected;
+- fixed argv/no shell interpolation;
+- timeout bounded;
+- consecutive offline verification;
+- transient failure -> reconcile + bounded retry;
+- retry exhaustion -> durable failure/`FAILED_SAFE` and no premature FSD.
 
-## 13. Configuration transaction tests
-
-- syntax-invalid candidate never activates
-- schema-invalid candidate never activates
-- semantic-invalid candidate never activates
-- service-start failure triggers rollback
-- probation failure triggers rollback
-- power loss during probation does not promote candidate
-- reboot resumes/rolls back transaction safely
-- known-good immutable after promotion
-- manual rollback is itself validated
-- failed rollback → FAILED_SAFE
-
-## 14. Health/autofix
-
-- kill agent: systemd recovers it
-- hang/missed watchdog: recovery path triggers
-- disable required project service: health detects and safely re-enables
-- break project-owned permissions: safe repair
-- disconnect UPS: report unavailable, not OL
-- repeated repair failure reaches circuit breaker/FAILED_SAFE
-- health repair never sends WoL/shutdown/FSD merely to make health pass
-
-## 15. IPC/security tests
-
-- READ operation works for permitted client
-- privileged operation rejected for unprivileged peer
-- root/superuser path accepted
-- malformed JSON rejected
-- oversized request rejected
-- duplicate nonce does not duplicate destructive action
-- concurrent config transactions conflict
-- secrets absent from response/log summaries
-
-## 16. Installer tests
-
-Clean systems for each supported family should validate:
-
-```text
-install dependencies
-install prebuilt artifacts
-generate candidate config
-enable/start services
-health probation
-known-good creation
-reboot/autostart
-idempotent second install
-```
-
-Silent mode never prompts.
-
-Ambiguous UPS selection fails safely without explicit parameters.
-
-## 17. Upgrade/rollback
+### NUT secondary path
 
 Test:
 
-- healthy version A → healthy version B
-- B binary fails startup → restore A
-- B config migration fails → restore A + prior LKG
-- power loss during upgrade → boot reconciliation restores coherent version/config
-- checksum failure before install makes no active changes
+- `shutdown.method: nut` receives no duplicate SSH/direct request;
+- secondary participates in FSD group;
+- Synology compatibility account remains monitor-only.
 
-## 18. Hardware matrix
+### Reserved/fail-closed paths
 
-Required before v0.1 stable:
+Do **not** test successful command shutdown, ARP-only armed verification or dependency WoL as v0.1 features. Instead test that armed validation rejects them predictably.
+
+## 8. NUT primary/secondary integration
+
+Verify generated/project-managed configuration for:
+
+- validated local primary ownership;
+- remote-client does not issue FSD;
+- existing-NUT multi-primary ambiguity rejects process-wide FSD;
+- canonical `HOSTSYNC`/`FINALDELAY` values are rendered from project config;
+- secondaries receive the NUT shutdown wave;
+- controller/primary shutdown remains last in the NUT path;
+- long-running agent does not substitute direct `load.off`/driver shutdown.
+
+Real UPS output shutdown/return is a physical test, not a `dummy-ups` assertion.
+
+## 9. Synology software and physical acceptance
+
+Automated integration validates generated DSM-compatible identity/credentials and no administrative NUT permissions.
+
+Real DSM acceptance must additionally prove on actual DSM hardware/version:
+
+- TCP 3493 monitoring works;
+- OL/OB/FSD behavior is observed as expected;
+- DSM performs its own safe shutdown through NUT;
+- no duplicate direct shutdown is sent;
+- managed-host WoL recovery works when supported/configured;
+- repeated controller reboot/power bounce does not wake the NAS prematurely.
+
+## 10. Network dependencies
+
+Accepted v0.1 dependency tests cover `auto-power` and `wait-only` readiness:
+
+- dependency unavailable delays dependent-host wake;
+- dependency later becomes ready and recovery continues;
+- network wait timeout surfaces failure/fail-safe rather than false success;
+- no Internet dependency is required unless explicitly modeled.
+
+Dependency `startup: wol` is a negative validation test in armed v0.1.
+
+## 11. Configuration transactions
+
+Test:
+
+- invalid candidate never activates/promotes;
+- semantic/safety-invalid candidate rejected;
+- component/service startup failure triggers rollback;
+- probation failure triggers rollback;
+- power loss/reboot during activation does not promote candidate;
+- active config bytes/manifest mismatch restores known-good;
+- manual rollback is transactional and health-validated;
+- failed rollback -> `FAILED_SAFE`;
+- browser/channel loss after `config-apply` does not kill systemd-owned probation.
+
+## 12. Health/autofix
+
+Test:
+
+- agent crash/watchdog recovery;
+- required project service disabled -> detection and safe bounded repair;
+- project-owned permissions/path repair;
+- UPS disconnect -> unavailable/unknown, not online;
+- repeated repair failure reaches circuit breaker/`FAILED_SAFE`;
+- health repair never sends shutdown/WoL/FSD merely to make health pass;
+- system-service health state does not race/corrupt agent UPS health state.
+
+## 13. IPC/control security tests
+
+Current agent IPC tests:
 
 ```text
-amd64 + real USB HID UPS
-arm64 + real USB HID UPS
-riscv64 smoke test of agent/config/state/IPC where practical
-Synology DSM NUT client
-Ethernet switch/router dependency test
+GetHealth success/provider failure
+unknown method rejected
+malformed JSON rejected
+missing id/method rejected
+oversized request rejected
+one request/response per connection
+response ID correlation
 ```
 
-Hardware acceptance records exact:
+Current CLI/control tests:
 
 ```text
-UPS vendor/model
-NUT driver
-NUT version
-OS/distribution
-architecture
-output-cycle capability result
-observed shutdown-return behavior
+config validate without mutation
+privileged config apply/rollback require root
+candidate size bounded
+systemd-owned activation/probation
+plan/log/status commands do not invent IPC methods
 ```
 
-## 19. UPS output-cycle hardware test
+Do not claim generic mutating IPC peer-credential authorization until such methods are implemented.
 
-This test must be opt-in and performed only on disposable/test load.
+## 14. Installer/upgrade acceptance
 
-Verify:
+Automated installer coverage includes:
+
+- dependency/platform/architecture checks;
+- systemd PID-1 requirement before transaction creation;
+- local/remote/existing NUT profiles;
+- UPS discovery ambiguity handling;
+- trusted/restricted network policy;
+- generated empty live inventory and dry-run default;
+- service enable/start and health probation;
+- known-good creation;
+- idempotent reinstall;
+- normal broken-upgrade rollback;
+- interrupted-install durable marker and boot rollback;
+- package/checksum verification.
+
+The existing Ubuntu 24.04 E2E uses NUT `dummy-ups`, real systemd and Cockpit. Additional distro/package matrices may extend this without changing the real-hardware gate.
+
+## 15. Multi-architecture gates
 
 ```text
-FSD shutdown sequence
-controller/secondary shutdown complete
-UPS output actually turns off as expected
-utility restoration causes expected output return
-controller automatically boots
-BOOT_RECONCILE blocks host wake until stability + 80% gate
+amd64: native build/runtime smoke + systemd installer E2E where defined
+arm64: build + QEMU runtime smoke
+riscv64: build + QEMU runtime smoke
 ```
 
-Only after successful test may profile become `POWER_CYCLE_VERIFIED`.
+Real UPS v0.1 physical acceptance is required on representative amd64 and arm64 controllers. Physical riscv64 UPS testing is optional for v0.1 unless the release scope changes.
 
-## 20. Release gate
+## 16. USB-UPS-Simulator hardware-in-loop
 
-A stable v0.1 requires:
+`ami3go/USB-UPS-Simulator` may be used as an additional test layer to validate real USB HID/NUT enumeration and controllable UPS-state transitions.
+
+Useful scenarios:
 
 ```text
-all mandatory unit/integration tests pass
-all safety fault-injection scenarios pass
-clean installer test passes
-upgrade rollback test passes
-amd64 hardware test passes
-arm64 hardware test passes
-Synology acceptance passes
-no unresolved P0 safety issue
+USB attach/discovery
+NUT usbhid-ups integration
+OL/OB/LB-style transition handling
+communication interruption/reconnect
+controller/service restart during simulated outage
 ```
+
+A simulator PASS is valuable but is **not** a substitute for production UPS electrical output/battery/charger behavior.
+
+## 17. Real hardware matrix
+
+Required before public v0.1:
+
+```text
+amd64 + real supported UPS full outage/recovery
+arm64 + real supported UPS full outage/recovery
+real Synology DSM NUT-secondary shutdown/recovery
+```
+
+Use `docs/HARDWARE_ACCEPTANCE.md` and retain exact controller, OS, NUT, UPS, firmware, connection, config revision, software commit and journal/state evidence.
+
+## 18. Release/governance gate
+
+A public v0.1 requires:
+
+```text
+[x] project license selected: AGPL-3.0-or-later
+[x] mandatory software/unit/integration/fault tests green
+[x] package/checksum pipeline green
+[ ] amd64 real UPS acceptance retained
+[ ] arm64 real UPS acceptance retained
+[ ] real DSM acceptance retained
+[ ] main branch protected to require PR + green CI and block force-push/deletion (issue #39)
+```
+
+No automated/simulated result may be relabeled as a physical PASS.

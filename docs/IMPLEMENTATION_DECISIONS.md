@@ -1,53 +1,49 @@
 # v0.1 Implementation Decisions
 
 **Status:** Implemented/frozen v0.1 software baseline  
-**Release state:** software acceptance green; project licensed AGPL-3.0-or-later; physical UPS/DSM acceptance remains open
+**Release state:** software acceptance green for the accepted feature set; real UPS/DSM acceptance and `main` branch governance remain open
 
-## 1. Agent
+## 1. Agent and helpers
 
-Language: **Go**.
+The agent, control CLI, health helper and WoL helper are implemented in **Go**:
 
-Reasons:
+```text
+cockpit-ups-wol-agent
+cockpit-ups-wolctl
+cockpit-ups-wol-health
+wolctl
+```
 
-- small self-contained release binaries
-- straightforward amd64/arm64/riscv64 cross-builds
-- low runtime dependency burden on small SBCs
-- strong standard-library support for system programming, Unix sockets, JSON, networking and concurrency
-- suitable for systemd watchdog/daemon behavior
+Go provides small release binaries, straightforward amd64/arm64/riscv64 builds and low runtime dependency overhead. Normal release installation does not require a Go compiler.
 
-Normal target systems do not require a Go compiler; release bundles contain prebuilt binaries. Source-tree development installation may build from source when prebuilt binaries are absent.
+The current WoL packet implementation is maintained in this repository. Future copied/adapted upstream code requires exact attribution before merge.
 
-## 2. WoL helper
-
-`wolctl` is implemented in Go.
-
-The current project implementation is independently maintained in this repository. Any future copied/adapted upstream code still requires exact attribution in `THIRD_PARTY_NOTICES.md` before inclusion.
-
-## 3. Cockpit frontend
+## 2. Cockpit frontend
 
 Stack:
 
 ```text
 TypeScript
-React
-PatternFly
+React 19.3.0
+PatternFly 6.6.1 family
 Cockpit JavaScript API
 ```
 
-The v0.1 frontend is implemented as a prebuilt Cockpit bundle. Node/npm are build-time dependencies only; production SBC installation consumes the built assets.
+Node/npm are build-time dependencies only. The Cockpit dependency graph is locked by `package-lock.json`; CI/package workflows use `npm ci`.
 
-Cockpit remains management-only and is not required for automatic outage/recovery processing.
+Cockpit is management-only and is not required for automatic outage/recovery behavior.
 
-## 4. Installer
+## 3. Installer
 
 Implementation:
 
 ```text
 Bash entry point
-modular distro-specific shell libraries
+modular installer libraries
+systemd runtime integration
 ```
 
-One entry point:
+Source-tree entry points:
 
 ```bash
 sudo ./install.sh
@@ -55,185 +51,152 @@ sudo ./install.sh --tui
 sudo ./install.sh --silent
 ```
 
-All three modes use one transactional backend. The TUI uses `dialog` with `whiptail` fallback where practical.
+All modes use one transactional backend. Real installation requires systemd to be PID 1 and rejects unsupported container/chroot environments before install transaction state is created.
 
-Normal release installation requires no Go/Node build toolchain on the target.
+Normal packaged/release installation consumes prebuilt Go/Cockpit artifacts and does not require a build toolchain on the target.
 
-## 5. Configuration
+## 4. Configuration
 
 Format: YAML.
 
-Validation source of truth: JSON Schema (`schemas/config.schema.json`) plus semantic/cross-reference validators in Go.
+Validation source of truth: `schemas/config.schema.json` plus Go semantic/cross-reference/safety validators.
 
-The maintained YAML parser is pinned through `go.mod`/`go.sum`.
+Fresh installations deliberately start with empty `hosts` and `network_dependencies` and default to `dry-run`.
 
-Fresh live installations deliberately start with empty `hosts` and `network_dependencies`; example targets are documentation/examples only.
-
-## 6. Persistent state
-
-Format: JSON with deterministic canonical serialization for checksum calculation.
-
-Implemented model:
-
-- `current` and `previous` durable generations
-- sequence number and checksum verification
-- temp write + fsync + atomic rename + parent-directory fsync
-- outage/action identity
-- per-host shutdown/recovery state
-- fail-safe fallback when the newest generation is corrupt
-
-No SQLite/database is required for v0.1 safety state.
-
-## 7. Local IPC
-
-Unix-domain stream socket with newline-delimited JSON as defined in `docs/IPC.md`.
-
-v0.1 has no TCP management API. Cockpit uses the local CLI/IPC boundary rather than editing agent power-state files directly.
-
-## 8. Service manager
-
-systemd is the v0.1 runtime service model.
-
-The full appliance targets systemd-based Linux distributions. Runtime integration includes service autostart, watchdog notification, the health timer, and optional project firewall service.
-
-NUT unit naming remains distro-aware.
-
-## 9. Logging
-
-Runtime logs use journald.
-
-The installer additionally writes:
+The schema carries some future-facing values. Armed v0.1 intentionally rejects:
 
 ```text
-/var/log/cockpit-ups-wol/install.log
+shutdown.method: command
+ARP-only host verification
+dependency Wake-on-LAN
 ```
 
-No separate runtime logging database is required for v0.1.
+## 5. Persistent state
 
-## 10. NUT integration
+Safety state is JSON with deterministic checksum calculation and crash-safe rotation:
+
+- current/previous durable generations;
+- sequence + checksum validation;
+- temp write + fsync + atomic rename + parent-directory fsync;
+- outage/action identity;
+- per-host shutdown/recovery progress;
+- valid previous-generation fallback;
+- new outage epoch when utility fails during partial recovery.
+
+No database is required for v0.1 safety state.
+
+## 6. Local control boundary
+
+### Agent IPC
+
+The current Unix-domain socket is deliberately small. It uses one JSON request/response per connection and currently implements `GetHealth`.
+
+It does **not** implement the broad historical draft of mutating/status methods or a completed generic `SO_PEERCRED` authorization framework.
+
+### Configuration/management CLI
+
+`cockpit-ups-wolctl` provides the implemented management surface for:
+
+```text
+health
+config-get
+config-validate
+config-apply
+config-status
+config-rollback
+plan
+logs
+config-bootstrap
+```
+
+Privileged configuration mutations are root-gated. `config-apply` hands activation/probation to a transient systemd unit so browser/channel loss does not interrupt the transaction.
+
+## 7. Service manager and logging
+
+systemd is the v0.1 runtime service model. Runtime integration includes automatic startup, agent watchdog notification, health timer, installer recovery unit and optional project firewall service.
+
+Runtime logs use journald. Installer logs are persisted under `/var/log/cockpit-ups-wol/`.
+
+## 8. NUT integration
 
 v0.1 uses installed NUT tools/services rather than embedding a native NUT protocol implementation.
 
-The Go agent invokes safe argv-based tools such as `upsc` and the validated primary FSD path without shell string concatenation.
+The agent uses argv-safe tools such as `upsc` and the validated primary FSD path. Communication failure is `UNKNOWN`, never inferred as online or full battery.
 
-Communication failure is `UNKNOWN`, never inferred as `OL` or full battery.
+Canonical project `hosts_sync_seconds` and `final_delay_seconds` render managed NUT timing. Existing-NUT mode fails closed when multiple primary/master monitor entries make process-wide FSD ownership ambiguous.
 
-A native Go NUT client remains a later optimization.
+A native Go NUT client remains optional later work.
 
-## 11. Host adapters
+## 9. Host adapters
 
-Implemented/accepted v0.1 shutdown methods:
+Accepted armed-v0.1 shutdown behavior:
 
 ```text
-nut   — host participates in the NUT/FSD secondary path
-ssh   — fixed argv / constrained remote shutdown
-none  — observe/manage state without controller-issued shutdown
+nut   — NUT secondary/FSD path
+ssh   — fixed argv constrained remote shutdown with bounded reconciliation/retry
+none  — no controller-issued direct shutdown
 ```
 
-`command` exists in the schema/design space but **fails closed for armed v0.1** because no durable allowlisted command registry has yet passed acceptance. Arbitrary shell strings are not executed.
+`command` remains schema/design space only and fails closed in armed v0.1.
 
-Status checking implemented for safe TCP/ping paths with consecutive verification. Armed ARP-only verification remains unsupported.
+Accepted armed host verification uses deterministic implemented paths such as TCP/ping. ARP-only verification remains unsupported.
 
-Proxmox native API integration is deferred to v0.2.
+Managed-host WoL is implemented with durable attempts. Dependency WoL remains deferred until dependency actions receive equivalent durable semantics.
 
-## 12. Build layout
-
-The repository uses one Go module under `agent/`, with executable entry points under `agent/cmd/` and shared safety packages under `agent/internal/`.
-
-Current major internal areas include configuration, control/runtime, health, host adapters, IPC, NUT, orchestration/policy, reporting, durable state, system integration and WoL.
-
-Keeping agent/CLI tools in one module synchronizes shared state/config/protocol types.
-
-## 13. Tests
+## 10. Build and tests
 
 Current automated acceptance includes:
 
-### Go / runtime
+- Go unit tests and `go vet`;
+- canonical configuration/NUT/Synology integration;
+- outage/recovery/reboot/fault tests;
+- state corruption and config rollback/reconciliation;
+- installer discovery/network/transaction tests;
+- Ubuntu 24.04 NUT `dummy-ups` + real systemd + Cockpit E2E;
+- amd64 native runtime smoke;
+- arm64/riscv64 QEMU runtime smoke;
+- Cockpit strict TypeScript and production bundle build;
+- reproducible package/checksum verification.
 
-```text
-unit tests
-go vet
-canonical YAML integration
-NUT primary/secondary + Synology generated-config integration
-fault/reboot/power-state tests
-amd64/arm64/riscv64 builds
-amd64 native runtime smoke
-arm64/riscv64 QEMU runtime smoke
-```
+Unsupported future capabilities are validated as fail-closed negative cases rather than positive armed execution.
 
-### Installer/system
+## 11. Release artifacts
 
-```text
-Bash syntax
-installer backend unit tests
-UPS discovery/config rendering tests
-restricted-firewall plan tests
-option/self-check matrix
-Ubuntu 24.04 + real systemd + NUT dummy-ups + Cockpit E2E
-idempotent reinstall
-intentionally broken upgrade rollback
-```
+Release packaging produces amd64/arm64/riscv64 appliance archives, Debian packages, `SHA256SUMS`, prebuilt Cockpit assets and the project license.
 
-### Frontend
+A manual GitHub testing-release path publishes verified pre-release artifacts.
 
-```text
-strict TypeScript typecheck
-production bundle build
-bundle installation/rollback through installer E2E
-```
+## 12. Network security
 
-Physical real-UPS and DSM validation is explicitly separate from CI simulation.
+Default NUT network mode: `trusted-lan`.
 
-## 14. Release artifacts
+Optional `restricted` mode uses a dedicated project-owned nftables table for TCP/3493, protects enabled IPv4/IPv6 listeners and does not flush/replace unrelated firewall state.
 
-The packaging pipeline produces:
+## 13. Dependency and source-reuse policy
 
-```text
-linux-amd64 appliance archive
-linux-arm64 appliance archive
-linux-riscv64 appliance archive
-SHA256SUMS
-prebuilt Cockpit bundle
-installer/systemd/config/docs payload
-```
+GitHub Actions are pinned to immutable commit SHAs and monitored by Dependabot. Go/npm dependencies are versioned through normal module/lock metadata.
 
-Archives are normalized for reproducibility. Tagged publication remains blocked until a root project `LICENSE` exists.
+Every copied/adapted upstream source component requires exact source project/path/commit, license review, required notice retention and an entry in `THIRD_PARTY_NOTICES.md`.
 
-## 15. NUT network security
+Project license: **AGPL-3.0-or-later**.
 
-Default: `trusted-lan`.
+## 14. Deferred choices
 
-Optional `restricted` mode uses a dedicated project-owned nftables table for NUT TCP/3493. It does not flush/replace unrelated firewall state. IPv6 NUT listening is protected when enabled.
-
-## 16. Dependency policy
-
-Prefer the Go standard library and small focused dependencies.
-
-Every copied/adapted upstream source file/function requires:
-
-- license compatibility review
-- exact source project/path/commit recorded
-- attribution in `THIRD_PARTY_NOTICES.md`
-- clear indication of local modifications
-
-The project license decision remains a release blocker.
-
-## 17. Deferred choices
-
-Not required for v0.1:
+Not part of accepted v0.1:
 
 ```text
 native Go NUT protocol client
-D-Bus agent API
+D-Bus management API
 embedded database
-arbitrary command shutdown adapter
-dependency WoL without durable dependency-action state
+command shutdown adapter
+ARP-only armed verification
+dependency WoL without durable action state
 multi-UPS policy
 Proxmox API adapter
-containerized primary deployment
-Kubernetes
 multi-controller HA
 cloud service
 ```
 
-These may be reconsidered after the core safety lifecycle is physically hardware-tested.
+## 15. Remaining release gates
+
+Software baseline completion does not replace physical/governance release evidence. v0.1 remains gated by issue #10 real amd64/arm64 UPS + Synology DSM acceptance and issue #39 `main` branch protection requiring pull requests and green CI.
