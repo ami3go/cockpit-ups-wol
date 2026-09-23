@@ -85,6 +85,7 @@ source "$SELF_DIR/scripts/install/transaction.sh"
 source "$SELF_DIR/scripts/install/tui.sh"
 if ((CHECK_ONLY)); then resolve_profile_inputs; installer_self_check; exit 0; fi
 require_root
+installer_runtime_preflight
 log_init
 trap 'install_failure "$LINENO" "$?"' ERR
 run_stage(){
