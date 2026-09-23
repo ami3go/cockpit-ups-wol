@@ -61,12 +61,12 @@ STARTED=1
 SYSTEMD_READY=0
 for _ in {1..60}; do
   state="$(docker exec "$NAME" systemctl is-system-running 2>/dev/null || true)"
-  case "$state" in
-    running|degraded)
+  if [[ "$state" == running || "$state" == degraded ]]; then
+    if docker exec "$NAME" systemctl is-active --quiet multi-user.target; then
       SYSTEMD_READY=1
       break
-      ;;
-  esac
+    fi
+  fi
   sleep 1
 done
 if (( ! SYSTEMD_READY )); then
@@ -75,13 +75,19 @@ if (( ! SYSTEMD_READY )); then
 fi
 
 echo "systemd ready in $IMAGE"
-docker cp "$DEB" "$NAME:/tmp/cockpit-ups-wol.deb"
+# Do not stage under /tmp: newer systemd releases may mount or clean it during
+# early boot. /root is stable after multi-user.target and keeps the test input
+# outside the installed package payload.
+docker cp "$DEB" "$NAME:/root/cockpit-ups-wol.deb"
 docker exec "$NAME" bash -Eeuo pipefail -c '
   export DEBIAN_FRONTEND=noninteractive
-  test -s /tmp/cockpit-ups-wol.deb
-  dpkg-deb --info /tmp/cockpit-ups-wol.deb >/dev/null
+  test -s /root/cockpit-ups-wol.deb
+  ls -lh /root/cockpit-ups-wol.deb
+  sha256sum /root/cockpit-ups-wol.deb
+  dpkg-deb --version
+  dpkg-deb --info /root/cockpit-ups-wol.deb >/dev/null
   apt-get update
-  cd /tmp
+  cd /root
   apt-get install -y ./cockpit-ups-wol.deb
   cockpit-ups-wol-setup --check --profile existing
 '
