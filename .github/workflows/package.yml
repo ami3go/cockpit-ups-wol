@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -12,6 +13,7 @@ permissions:
 jobs:
   package:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -33,6 +35,10 @@ jobs:
         env:
           VERSION: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('snapshot-{0}', github.sha) }}
         run: ./scripts/release/build-bundles.sh
+      - name: Build multi-arch Debian packages
+        env:
+          VERSION: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('snapshot-{0}', github.sha) }}
+        run: ./scripts/release/build-deb.sh
       - name: Scan shipped Go binaries
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
@@ -52,6 +58,7 @@ jobs:
           for a in *.tar.gz; do
             contents="$(tar -tzf "$a")"
             grep -q '/install.sh$' <<<"$contents"
+            grep -q '/LICENSE$' <<<"$contents"
             grep -q '/cockpit/dist/manifest.json$' <<<"$contents"
             grep -q '/scripts/install/discovery.sh$' <<<"$contents"
             grep -q '/scripts/install/network.sh$' <<<"$contents"
@@ -61,11 +68,28 @@ jobs:
             grep -q '/scripts/install/recover-interrupted-install.sh$' <<<"$contents"
             grep -q '/scripts/test/hardware-preflight.sh$' <<<"$contents"
           done
+          for d in *.deb; do
+            dpkg-deb --info "$d"
+            contents="$(dpkg-deb --contents "$d")"
+            grep -q 'usr/sbin/cockpit-ups-wol-setup$' <<<"$contents"
+            grep -q 'usr/lib/cockpit-ups-wol/install.sh$' <<<"$contents"
+            grep -q 'usr/lib/cockpit-ups-wol/cockpit/dist/manifest.json$' <<<"$contents"
+            grep -q 'usr/share/doc/cockpit-ups-wol/copyright$' <<<"$contents"
+          done
+      - name: Smoke-test installed amd64 Debian package
+        if: runner.arch == 'X64'
+        run: |
+          deb="$(find release -maxdepth 1 -type f -name '*_amd64.deb' -print -quit)"
+          test -n "$deb"
+          sudo apt-get update
+          sudo apt-get install -y "$PWD/$deb"
+          sudo cockpit-ups-wol-setup --check --profile local-server
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cockpit-ups-wol-packages
           path: |
             release/*.tar.gz
+            release/*.deb
             release/SHA256SUMS
             release/RELEASE_NOTES.md
           if-no-files-found: error
@@ -76,4 +100,4 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" release/*.tar.gz release/SHA256SUMS --title "$GITHUB_REF_NAME" --notes-file release/RELEASE_NOTES.md --verify-tag
+        run: gh release create "$GITHUB_REF_NAME" release/*.tar.gz release/*.deb release/SHA256SUMS --title "$GITHUB_REF_NAME" --notes-file release/RELEASE_NOTES.md --verify-tag
