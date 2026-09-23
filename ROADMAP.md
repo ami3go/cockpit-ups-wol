@@ -27,6 +27,7 @@ This roadmap tracks implementation and release readiness. A safety-relevant item
 - Fresh installs start with empty host/dependency inventories and `dry-run` mode.
 - Service autostart, health probation, initial last-known-good bootstrap and idempotent reinstall.
 - Real Ubuntu 24.04 NUT `dummy-ups` + systemd + Cockpit install/probation/idempotency/rollback acceptance.
+- Systemd-enabled `.deb` installation acceptance on Debian 12, Debian 13, Ubuntu 24.04 and Ubuntu 26.04, including APT dependency resolution, NUT dummy UPS configuration, service/health/Cockpit verification and idempotent setup.
 - Generated NUT primary/secondary + Synology monitor-only integration tests.
 - Power-bounce, interrupted-boot, stale/corrupt state, config failure, communication-loss and ambiguous-restart tests.
 - amd64 native runtime smoke plus arm64/riscv64 runtime smoke under QEMU.
