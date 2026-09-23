@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/ami3go/cockpit-ups-wol/tree/main/docs
+    about: Check installation, configuration, reliability, NUT, Synology and hardware-acceptance documentation before filing an issue.
+  - name: Security model
+    url: https://github.com/ami3go/cockpit-ups-wol/blob/main/docs/SECURITY.md
+    about: Review the project's security assumptions and boundaries. Do not post credentials, private keys or exploit-sensitive details in public issues.
