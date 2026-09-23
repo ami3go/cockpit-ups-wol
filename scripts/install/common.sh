@@ -36,7 +36,18 @@ platform_detect(){
     *) die "unsupported architecture: $(uname -m)";;
   esac
 }
-installer_self_check(){ local f; for f in "$SELF_DIR/config/config.yaml.example" "$SELF_DIR/packaging/systemd/cockpit-ups-wol-agent.service" "$SELF_DIR/packaging/systemd/cockpit-ups-wol-health.service" "$SELF_DIR/packaging/systemd/cockpit-ups-wol-health.timer" "$SELF_DIR/packaging/systemd/cockpit-ups-wol-firewall.service" "$SELF_DIR/packaging/systemd/cockpit-ups-wol-install-recover.service" "$SELF_DIR/scripts/install/recover-interrupted-install.sh" "$SELF_DIR/scripts/install/nut.sh" "$SELF_DIR/scripts/install/discovery.sh" "$SELF_DIR/scripts/install/network.sh" "$SELF_DIR/scripts/install/configuration.sh" "$SELF_DIR/scripts/install/tui.sh" "$SELF_DIR/scripts/install/validate.sh"; do [[ -f "$f" ]]||die "required installer source missing: $f"; done; printf 'installer-check: ok distro=%s arch=%s profile=%s network=%s\n' "$DISTRO_FAMILY" "$TARGET_ARCH" "$PROFILE" "${NETWORK_MODE:-trusted-lan}"; }
+installer_runtime_preflight(){
+  command -v systemctl >/dev/null 2>&1 || die "systemd/systemctl is required"
+  systemctl show-environment >/dev/null 2>&1 || die "systemd must be running as PID 1; ordinary containers without systemd are unsupported"
+}
+installer_self_check(){
+  local f
+  for f in "$SELF_DIR/config/config.yaml.example" "$SELF_DIR/packaging/systemd/cockpit-ups-wol-agent.service" "$SELF_DIR/packaging/systemd/cockpit-ups-wol-health.service" "$SELF_DIR/packaging/systemd/cockpit-ups-wol-health.timer" "$SELF_DIR/packaging/systemd/cockpit-ups-wol-firewall.service" "$SELF_DIR/packaging/systemd/cockpit-ups-wol-install-recover.service" "$SELF_DIR/scripts/install/recover-interrupted-install.sh" "$SELF_DIR/scripts/install/nut.sh" "$SELF_DIR/scripts/install/discovery.sh" "$SELF_DIR/scripts/install/network.sh" "$SELF_DIR/scripts/install/configuration.sh" "$SELF_DIR/scripts/install/tui.sh" "$SELF_DIR/scripts/install/validate.sh"; do
+    [[ -f "$f" ]] || die "required installer source missing: $f"
+  done
+  installer_runtime_preflight
+  printf 'installer-check: ok distro=%s arch=%s profile=%s network=%s\n' "$DISTRO_FAMILY" "$TARGET_ARCH" "$PROFILE" "${NETWORK_MODE:-trusted-lan}"
+}
 # configuration.sh overrides resolve_profile_inputs/install_project_config/final_report.
 resolve_profile_inputs(){ [[ "$UPS_NAME" =~ ^[A-Za-z0-9._-]+$ ]]||die "invalid UPS name"; if ((SYNOLOGY))&&[[ "$UPS_NAME" != ups ]]; then die "Synology compatibility requires UPS name 'ups'"; fi; if [[ "$PROFILE" == remote-client && -z "$NUT_HOST" ]]; then if ((SILENT)); then die "remote-client --silent requires --nut-host"; else read -r -p 'Remote NUT server hostname or IP: ' NUT_HOST; fi; fi; [[ -n "$NUT_HOST" ]]||NUT_HOST=localhost; [[ "$NUT_HOST" =~ ^[A-Za-z0-9._:-]+$ ]]||die "invalid NUT host"; }
 confirm_install(){ ((SILENT))&&return 0; local text="Install cockpit-ups-wol in ${PROFILE} mode on ${DISTRO_FAMILY}/${TARGET_ARCH}?"; read -r -p "$text [y/N] " r; [[ "$r" =~ ^[Yy]$ ]]||exit 1; }
