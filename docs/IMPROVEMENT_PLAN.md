@@ -1,97 +1,107 @@
 # cockpit-ups-wol — Improvement Plan Status
 
 **Original plan date:** 2026-09-19  
-**Reconciled:** 2026-09-20  
+**Reconciled:** 2026-09-23  
 **Status:** Original v0.1 implementation plan substantially completed; retained as a completion record
 
 ## 1. Purpose
 
-This document originally converted the first readiness audit into an implementation checklist. The implementation work has now advanced past that stage.
+This document originally converted the first readiness audit into an implementation checklist. The implementation has advanced past that stage.
 
 Current authoritative status lives in:
 
-- `docs/READINESS_AUDIT.md` — release-gate readiness
-- `ROADMAP.md` — remaining v0.1 gates and future v0.2/v0.3 work
-- GitHub issues — executable/open work
+- `docs/READINESS_AUDIT.md` — release-gate readiness;
+- `ROADMAP.md` — current v0.1 boundary and future v0.2/v0.3 work;
+- GitHub issues — open executable/admin work.
 
-This file no longer represents an open task queue.
+This file no longer represents an active engineering queue.
 
 ## 2. Completed v0.1 workstreams
 
-The original blocking workstreams are complete:
+Completed software work includes:
 
-- canonical architecture/state reconciliation
-- NUT primary/FSD/output ownership model
-- trigger precedence, outage/recovery hysteresis and fail-safe `UNKNOWN`
-- canonical YAML configuration + JSON Schema
-- crash-safe persistent state model
-- Unix-socket Cockpit/CLI control boundary
-- Go agent/CLI implementation stack
-- UPS-backed controller/network deployment requirements
-- automatic service startup, watchdog and bounded health autofix
-- `FAILED_SAFE` behavior
-- transactional configuration with probation, immutable known-good revisions and rollback
-- application/Cockpit/systemd/NUT rollback during failed upgrades
-- deterministic armed outage/recovery orchestration
-- constrained SSH/NUT shutdown adapters
-- durable Wake-on-LAN recovery
-- Cockpit management UI
-- Synology NUT-secondary software integration
-- single default/silent/TUI installer backend
-- guided TUI with system/package/profile/UPS/Synology/security/policy/topology/review/progress/result flow
-- local UPS discovery and explicit driver/port selection
-- trusted-LAN and optional restricted NUT networking
-- additive project-owned nftables policy with IPv4/IPv6 protection
-- fresh-install empty device/dependency inventory
-- real Ubuntu/NUT/systemd/Cockpit installation and rollback acceptance
-- amd64/arm64/riscv64 software build/runtime gates
-- reproducible packages and SHA256 checksums
-- hardware acceptance procedure and preflight helper
+- canonical architecture/state reconciliation;
+- NUT primary/FSD/output ownership model;
+- outage/recovery hysteresis, bounded communication-loss handling and fail-safe `UNKNOWN` semantics;
+- canonical YAML configuration + schema/semantic validation;
+- crash-safe persistent state with current/previous generations;
+- Go agent/CLI implementation stack;
+- UPS-backed controller/network deployment requirements;
+- automatic service startup, watchdog and bounded health autofix;
+- durable `FAILED_SAFE` behavior;
+- transactional configuration with probation, immutable known-good revisions and rollback;
+- application/Cockpit/systemd/NUT/firewall rollback during failed upgrades;
+- deterministic armed outage/recovery orchestration;
+- accepted SSH/NUT direct shutdown paths with bounded reconciliation/retry;
+- durable managed-host Wake-on-LAN recovery;
+- Cockpit management UI and privileged transactional configuration workflow;
+- Synology NUT-secondary software integration;
+- one default/silent/TUI installer backend;
+- durable interrupted-install boot recovery;
+- local UPS discovery and explicit driver/port selection;
+- trusted-LAN and optional restricted NUT networking;
+- additive project-owned nftables policy with IPv4/IPv6 protection;
+- fresh-install empty device/dependency inventory and `dry-run` default;
+- real Ubuntu/NUT/systemd/Cockpit installation/rollback acceptance;
+- amd64/arm64/riscv64 software build/runtime gates;
+- reproducible appliance archives, Debian packages and SHA256 checksums;
+- immutable Action pinning, Dependabot and locked npm dependencies;
+- AGPL-3.0-or-later project licensing;
+- hardware acceptance procedure and preflight helper.
 
-The final installer reconciliation was tracked as issue #15 and completed after the complete agent/architecture/installer/E2E CI gate passed.
+## 3. Explicitly deferred capabilities
 
-## 3. Remaining v0.1 release gates
+The schema contains some future-facing values, but these are intentionally **not** accepted armed-v0.1 capabilities:
 
-Only work that cannot be legitimately completed by software simulation remains:
+```text
+shutdown.method: command
+ARP-only host verification
+dependency Wake-on-Lan
+```
+
+They fail closed rather than becoming release blockers for the accepted v0.1 feature set. Their safe durable execution/verification models belong to later work.
+
+## 4. Remaining v0.1 release gates
 
 ```text
 [ ] amd64 controller + real supported UPS full outage/recovery test
 [ ] arm64 controller + real supported UPS full outage/recovery test
 [ ] real Synology DSM NUT-secondary shutdown/recovery test
-[ ] select/add root project LICENSE
+[ ] main branch protection/ruleset configured (issue #39)
 ```
 
-The three physical tests are tracked by issue #10. Project licensing is tracked by issue #12.
+The three physical tests are tracked by issue #10. Repository governance is tracked by issue #39.
 
-## 4. Release boundary
+The project license is already selected as `AGPL-3.0-or-later`; the former license-selection issue is complete and is no longer a release gate.
 
-A software/QEMU/`dummy-ups` result does not satisfy a real hardware gate.
+## 5. Release boundary
 
-A v0.1 public/tagged release should not be created until:
+A software/QEMU/`dummy-ups` or USB-simulator result does not satisfy a real-UPS hardware gate.
 
-1. issue #10 has retained physical evidence for the required platforms and DSM;
-2. the final release CI/package pipeline remains green on the release commit.
+A public/tagged v0.1 should not be created until:
 
-The project license is selected as `AGPL-3.0-or-later`. Any future copied/adapted upstream source still requires per-component license compatibility and attribution review before inclusion.
+1. issue #10 has retained physical evidence for amd64, arm64 and DSM acceptance;
+2. issue #39 is resolved with `main` protected by pull-request/green-CI governance;
+3. final release CI/package checks remain green on the release commit.
 
-## 5. Deferred enhancements
+Any future copied/adapted upstream source still requires exact source/version/license attribution in `THIRD_PARTY_NOTICES.md` before merge.
 
-The following belong to later releases rather than unfinished v0.1 safety work:
+## 6. Deferred enhancements
 
-- multi-UPS policy
-- Proxmox API/VM-aware orchestration
-- additional allowlisted shutdown adapters
-- dependency power/WoL actions with durable action state
-- advanced UPS writable-variable/instant-command management
-- native Go NUT client if later justified
-- richer Cockpit host/dependency CRUD
-- event history, metrics and notifications
-- fleet/remote aggregation
+Later releases may add:
 
-See `ROADMAP.md` for the current ordering.
+- safe allowlisted command adapters;
+- ARP verification after deterministic acceptance coverage;
+- durable dependency power/WoL actions;
+- multi-UPS policy;
+- Proxmox API/VM-aware orchestration;
+- advanced UPS writable-variable/instant-command management;
+- native Go NUT client if justified;
+- richer form-based Cockpit host/dependency CRUD;
+- event history, metrics, notifications and fleet aggregation.
 
-## 6. Completion principle
+See `ROADMAP.md` for current ordering.
 
-The original plan's safety principle remains unchanged:
+## 7. Completion principle
 
 > A power-management feature is complete only when its failure, reboot and rollback behavior has an executable acceptance path. Hardware-specific electrical behavior requires evidence from real hardware.

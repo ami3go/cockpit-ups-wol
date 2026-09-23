@@ -1,10 +1,11 @@
 # Local Agent IPC Contract
 
-**Status:** Normative v0.1 control interface
+**Status:** Normative for the implemented v0.1 IPC surface  
+**Important:** this document describes what is implemented now, not the broader historical design sketch.
 
-## 1. Decision
+## 1. Purpose
 
-Cockpit, CLI/TUI and local helpers SHALL communicate with `cockpit-ups-wol-agent` through a Unix-domain socket.
+`cockpit-ups-wol-agent` exposes a small local Unix-domain socket for runtime queries that benefit from talking directly to the running agent.
 
 Default path:
 
@@ -12,420 +13,155 @@ Default path:
 /run/cockpit-ups-wol/agent.sock
 ```
 
-The UI SHALL NOT directly modify runtime state or active configuration files.
+Cockpit does **not** directly edit power-state files or active configuration. Privileged configuration management is performed through `cockpit-ups-wolctl` and the transactional configuration revision manager.
 
-## 2. Why Unix-domain socket
+## 2. Current implementation boundary
 
-For v0.1 it provides:
+The implemented v0.1 agent IPC method is:
 
-- no TCP listening port
-- Linux peer credentials (`SO_PEERCRED`)
-- simple Go implementation
-- easy CLI integration
-- clean separation between Cockpit and the power engine
-- no dependency on D-Bus schema/tooling for the first release
+```text
+GetHealth
+```
 
-A D-Bus adapter may be added later without changing the internal service API.
+Other historical design methods such as `GetStatus`, `GetPowerPlan`, `BeginConfigTransaction`, `TriggerWake`, `TriggerShutdown`, and `TriggerFSD` are **not current agent IPC methods** and must not be documented or consumed as if they exist.
+
+Current management paths are:
+
+```text
+health query          -> agent Unix socket / GetHealth
+config read           -> cockpit-ups-wolctl config-get
+config validation     -> cockpit-ups-wolctl config-validate
+config apply          -> cockpit-ups-wolctl config-apply
+config status         -> cockpit-ups-wolctl config-status
+config rollback       -> cockpit-ups-wolctl config-rollback <revision>
+power plan            -> cockpit-ups-wolctl plan
+logs                  -> cockpit-ups-wolctl logs / journald
+```
+
+`config-apply` starts activation/probation in a transient systemd unit so the operation continues independently of the browser/Cockpit channel.
 
 ## 3. Transport
 
-Protocol: newline-delimited JSON request/response over `AF_UNIX` stream socket.
+Protocol: one newline-delimited JSON request followed by one JSON response over an `AF_UNIX` stream connection.
 
-Each connection may send multiple requests sequentially.
+The current server handles **one request per connection**.
 
-Request example:
-
-```json
-{"id":"1","method":"GetStatus","params":{}}
-```
-
-Response:
+Request:
 
 ```json
-{"id":"1","ok":true,"result":{"power_state":"NORMAL","health":"HEALTHY"}}
+{"id":"1","method":"GetHealth","params":{}}
 ```
 
-Error:
+Successful response shape:
 
 ```json
-{"id":"1","ok":false,"error":{"code":"AUTH_REQUIRED","message":"root authorization required"}}
+{"id":"1","ok":true,"result":{}}
 ```
 
-Maximum request size SHALL be bounded; recommended default: 1 MiB.
+Error response shape:
 
-## 4. Peer identity
+```json
+{"id":"1","ok":false,"error":{"code":"UNKNOWN_METHOD","message":"unknown method"}}
+```
 
-The agent SHALL inspect Unix peer credentials and record at least:
+The exact health snapshot fields are defined by the health package and may evolve compatibly.
+
+## 4. Limits and connection behavior
+
+Current implementation properties:
 
 ```text
-uid
-gid
-pid
+maximum request bytes: 1 MiB
+socket mode:           0660 by default
+connection deadline:   30 seconds
+one request/response per connection
 ```
 
-for mutating requests.
+Malformed JSON, oversized requests and unknown methods fail cleanly instead of crashing the agent.
 
-No user-provided UID field is trusted.
+The server removes a stale socket path before binding and removes its socket when shutting down normally.
 
-## 5. Socket ownership
+## 5. Request envelope
 
-Recommended runtime ownership:
-
-```text
-owner: cockpit-ups-wol
-group: cockpit-ups-wol
-mode: 0660
-```
-
-The exact service user/group is created by the installer.
-
-Read access for ordinary Cockpit sessions is normally mediated through the local CLI/helper rather than exposing the socket to all users.
-
-## 6. Authorization classes
-
-Methods are divided into:
-
-```text
-READ
-CONFIG_WRITE
-POWER_CONTROL
-ADMIN
-```
-
-### READ
-
-May be allowed to authenticated local users according to installer policy.
-
-Examples:
-
-```text
-GetStatus
-GetHealth
-GetConfigSummary
-ListConfigRevisions
-GetPowerPlan
-GetHostStatus
-```
-
-### CONFIG_WRITE
-
-Requires privileged authorization.
-
-Examples:
-
-```text
-BeginConfigTransaction
-ValidateConfigCandidate
-CommitConfigCandidate
-RollbackConfig
-SetOperatingMode
-```
-
-### POWER_CONTROL
-
-Requires privileged authorization and explicit user confirmation at the UI/CLI layer.
-
-Examples:
-
-```text
-TriggerWake
-TriggerShutdown
-TriggerFSD
-CancelPendingRecovery
-```
-
-### ADMIN
-
-Requires privileged authorization.
-
-Examples:
-
-```text
-ReloadConfig
-RunHealthCheck
-AttemptRepair
-AcknowledgeFailedSafe
-ResetTransactionRetries
-```
-
-## 7. Cockpit authorization path
-
-The Cockpit extension SHALL use a small local CLI client, tentatively:
-
-```text
-cockpit-ups-wolctl
-```
-
-Read operations can be executed without privilege where permitted.
-
-For privileged operations, Cockpit uses its authenticated superuser mechanism to execute the CLI as root. The agent verifies root peer credentials on the Unix socket.
-
-This keeps browser input separated from direct privileged file/system operations.
-
-Future versions may replace/root-split individual operations with polkit actions, but v0.1 SHALL preserve the same operation-level authorization semantics.
-
-## 8. Required methods
-
-### GetStatus
-
-Returns:
-
-```text
-power state
-normalized/raw UPS state
-operating mode
-active outage transaction
-active config revision
-last-known-good revision
-managed-host summary
-recovery-gate summary
-```
-
-Authorization: READ.
-
-### GetHealth
-
-Returns overall health and individual check results.
-
-Authorization: READ.
-
-### GetPowerPlan
-
-Returns the exact calculated dry-run shutdown/recovery sequence with priorities, NUT-secondary grouping and dependencies.
-
-Authorization: READ.
-
-### GetHostStatus
-
-Returns current configured/observed host state.
-
-Authorization: READ.
-
-### ListConfigRevisions
-
-Returns revision metadata, never unredacted secrets.
-
-Authorization: READ.
-
-### BeginConfigTransaction
-
-Creates a candidate revision from proposed configuration content and returns a transaction/revision ID.
-
-Authorization: CONFIG_WRITE.
-
-### ValidateConfigCandidate
-
-Runs schema, cross-reference and component preflight validation.
-
-Authorization: CONFIG_WRITE.
-
-### CommitConfigCandidate
-
-Atomically activates a valid candidate and begins runtime probation. Success response means activation started, not necessarily that the candidate is already known-good.
-
-Authorization: CONFIG_WRITE.
-
-### RollbackConfig
-
-Restores a selected known-good revision transactionally.
-
-Authorization: CONFIG_WRITE.
-
-### ReloadConfig
-
-Reloads the current known-good active revision when supported.
-
-Authorization: ADMIN.
-
-### SetOperatingMode
-
-Allowed transitions among:
-
-```text
-monitor
-dry-run
-armed
-maintenance
-```
-
-Entering `armed` SHALL require validation that mandatory safety prerequisites pass.
-
-Authorization: CONFIG_WRITE.
-
-### TriggerWake
-
-Explicit manual wake for one host.
-
-Authorization: POWER_CONTROL.
-
-### TriggerShutdown
-
-Explicit managed shutdown for one configured host, using its allowlisted adapter.
-
-Authorization: POWER_CONTROL.
-
-### TriggerFSD
-
-Requests the local NUT primary FSD path. This is a dangerous operation and only exists when the deployment is the validated NUT primary.
-
-Authorization: POWER_CONTROL.
-
-### CancelPendingRecovery
-
-Cancels an uncommitted pending automatic recovery. It SHALL NOT undo `RECOVERY_STARTED` after recovery commit.
-
-Authorization: POWER_CONTROL.
-
-### RunHealthCheck
-
-Runs checks immediately and returns details.
-
-Authorization: ADMIN.
-
-### AttemptRepair
-
-Runs bounded safe autofix for specified failed checks.
-
-Authorization: ADMIN.
-
-### AcknowledgeFailedSafe
-
-Records administrator acknowledgement and attempts re-reconciliation; it does not blindly clear the underlying failure.
-
-Authorization: ADMIN.
-
-## 9. Request envelope
-
-Required request fields:
+Required fields:
 
 ```json
 {
   "id": "client-generated-string",
-  "method": "GetStatus",
+  "method": "GetHealth",
   "params": {}
 }
 ```
 
-Optional:
+`id` and `method` are mandatory. The response echoes the request ID when available.
 
-```text
-client_version
-request_nonce
-```
+The current transport does not implement a generic nonce/idempotency layer; durable idempotency for safety-critical side effects belongs to the power transaction/state machinery, not this health-query method.
 
-The server responds with the same `id`.
+## 6. Current error codes
 
-## 10. Error codes
-
-Canonical v0.1 codes:
+The current server/handler may return at least:
 
 ```text
 INVALID_REQUEST
 UNKNOWN_METHOD
-INVALID_PARAMS
-AUTH_REQUIRED
-FORBIDDEN
-NOT_FOUND
-CONFLICT
-UNSAFE_STATE
-NOT_SUPPORTED
-VALIDATION_FAILED
 DEPENDENCY_UNAVAILABLE
-TIMEOUT
-FAILED_SAFE
 INTERNAL_ERROR
 ```
 
-A human-readable `message` accompanies the stable code.
+Do not rely on older draft-only error codes until corresponding methods are actually implemented and tested.
 
-## 11. Concurrency
+## 7. Authorization and privilege boundary
 
-Read methods may run concurrently.
+The Unix socket is local-only; there is no project TCP management API in v0.1.
 
-Mutating operations use internal locks:
+Current privileged configuration operations do **not** depend on an unimplemented generic IPC authorization layer. `cockpit-ups-wolctl` checks effective root privilege for operations such as apply/activate/rollback, while Cockpit uses its authenticated superuser path to invoke the CLI.
 
-```text
-config transaction lock
-power transaction lock
-state write lock
-```
+The current socket server does not claim a completed `SO_PEERCRED` authorization framework for mutating IPC operations because no mutating IPC methods are currently exposed.
 
-Only one configuration transaction may be active at a time.
+If future mutating agent IPC methods are added, they must add and test an explicit peer-credential authorization boundary before being considered accepted functionality.
 
-Power-control methods SHALL return `CONFLICT`/`UNSAFE_STATE` instead of racing an incompatible active automatic transaction.
+## 8. Cockpit usage
 
-## 12. Idempotency
+Cockpit uses the project control CLI as its stable local management boundary. This keeps browser input separated from direct privileged filesystem/system operations and allows configuration activation to be handed to systemd for browser-independent probation.
 
-Mutating calls SHOULD accept an optional `request_nonce`.
+The UI may poll health/status data through the available CLI/control paths. Journald access uses Cockpit/system tooling rather than a custom log-streaming socket protocol.
 
-The agent may retain recent nonces to avoid duplicate actions caused by UI retry/network interruption.
+## 9. Concurrency
 
-Critical external actions also use durable internal action IDs tied to the power transaction.
+The server accepts connections concurrently. Each connection is serviced independently, with one request per connection.
 
-## 13. Events / live updates
+Configuration transaction concurrency is handled by the configuration manager/revision store, not by a generic IPC mutation lock. Power transaction/state locking remains internal to the runtime safety engine.
 
-v0.1 may use polling for Cockpit status.
+## 10. Security boundaries
 
-Recommended intervals:
+v0.1 guarantees:
 
-```text
-UPS/power state: 5 s
-host/service summary: 10 s
-logs: journald stream through Cockpit APIs
-```
+- no project TCP management listener;
+- bounded local Unix-socket request size;
+- malformed requests do not crash the agent;
+- no arbitrary shell execution method on IPC;
+- privileged config mutation is performed through the root-gated CLI/revision manager;
+- the UI does not directly mutate durable power state;
+- unsupported methods fail closed as `UNKNOWN_METHOD`.
 
-A future socket subscription/event stream may be added without changing the basic request/response methods.
+## 11. Acceptance tests
 
-## 14. Versioning
-
-The IPC server reports:
+Current IPC acceptance should cover:
 
 ```text
-protocol_version: 1
-agent_version: <release>
-```
-
-Unknown major protocol versions SHALL fail clearly rather than silently misinterpreting methods.
-
-## 15. Audit logging
-
-Every privileged mutating request logs:
-
-```text
-time
-peer uid/pid
-method
-target
-result
-power transaction ID when applicable
-active config revision
-```
-
-Secrets and raw private-key material are never logged.
-
-## 16. Security boundaries
-
-- no TCP management API in v0.1
-- no arbitrary shell command method
-- no direct path supplied by browser to execute arbitrary binaries
-- host `command` shutdown uses predefined allowlisted command IDs
-- dangerous UPS commands are separate from ordinary health/config methods
-- agent validates state again at execution time; UI confirmation alone is not sufficient safety validation
-
-## 17. Acceptance tests
-
-Required tests:
-
-```text
-read method from permitted local client
-privileged method rejected for unprivileged peer
-root privileged method accepted
+GetHealth success
+GetHealth provider failure
 unknown method rejected
+missing id/method rejected
+malformed JSON rejected
 oversized request rejected
-malformed JSON does not crash agent
-concurrent reads succeed
-concurrent config transactions conflict
-power command conflicts with unsafe active transaction
-duplicate request nonce does not duplicate destructive action
-agent restart recreates socket with safe permissions
+one request/response per connection
+agent restart recreates the socket
+client detects response-id mismatch
 ```
+
+Future methods require their own authorization, concurrency, idempotency and safety tests before this document may list them as implemented.
+
+## 12. Future extension rule
+
+Potential future IPC methods may include richer status, event subscriptions or privileged operations, but documentation must follow implementation. A method becomes part of the normative IPC contract only after code, authorization behavior and regression tests exist.

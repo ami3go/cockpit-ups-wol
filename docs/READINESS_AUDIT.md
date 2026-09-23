@@ -1,82 +1,109 @@
 # cockpit-ups-wol — Readiness Audit
 
-**Audit date:** 2026-09-20  
-**Status:** Post-deep-review v0.1 release-gate review  
-**Scope:** architecture, runtime safety, installation, interrupted-power recovery, NUT/Synology, Cockpit management, health/autofix, testing, packaging and release governance
+**Audit date:** 2026-09-23  
+**Status:** v0.1 post-deep-review release-gate reconciliation  
+**Scope:** architecture, runtime safety, installation, interrupted-power recovery, NUT/Synology, Cockpit management, health/autofix, testing, packaging, licensing and repository governance
 
 ## 1. Executive verdict
 
-The **v0.1 software baseline is implemented and automated acceptance is green**. The deep code review identified several runtime and crash-consistency defects; those software findings have now been fixed through isolated pull requests with regression coverage and CI validation.
+The **v0.1 software baseline is implemented and automated acceptance is green on the accepted feature set**. Previous runtime/crash-consistency findings were fixed with regression coverage.
 
-No unresolved software-runtime P0/P1 blocker from that review remains. The project is now at the **physical validation / release-governance** stage.
+No unresolved software-runtime P0/P1 blocker from the deep review remains. The project is at the **physical validation / release-governance** stage.
 
-A tagged public v0.1 release remains blocked by:
+A public v0.1 remains blocked by:
 
-1. **real hardware acceptance** — issue #10: amd64 + real supported UPS, arm64 + real supported UPS, and real Synology DSM NUT-secondary acceptance with retained evidence;
-2. **main-branch protection** — issue #39: repository-admin configuration requiring PRs and green CI for `main`. The connected automation can create and merge PRs but cannot administer branch-protection settings.
+1. **real hardware acceptance — issue #10**: amd64 + real supported UPS, arm64 + real supported UPS, and real Synology DSM NUT-secondary acceptance with retained evidence;
+2. **main-branch protection — issue #39**: repository-admin configuration requiring pull requests and green CI for `main`, with force-push/deletion blocked.
+
+The project license is already selected: **GNU AGPL-3.0-or-later** with a root `LICENSE`.
 
 ## 2. Current readiness by area
 
 | Area | Status | Evidence / note |
 |---|---|---|
 | Architecture / state model | READY | canonical power, health and operating-mode models implemented |
-| Outage safety policy | READY | `recovery.enabled` enforced; OL cancellation debounce; bounded communication loss; durable max-on-battery elapsed time |
-| Recovery safety policy | READY | stable-utility/recharge/network/health gates; network timeout; post-commit health/network re-checks |
-| NUT ownership / FSD | READY | primary/master validation, multi-primary fail-closed behavior, generated integration tests |
-| NUT secondary synchronization | READY | canonical `HOSTSYNC` and `FINALDELAY` generated from project config |
-| Persistent state | READY | checksum, fsync, atomic rotation, validated previous-generation preservation |
-| Interrupted boot / power bounce | READY | boot reconciliation, renewed-outage transaction, re-shutdown of already-restored hosts |
-| Host shutdown | READY | constrained SSH/command execution, ambiguous-state reconciliation, bounded retries, `FAILED_SAFE` on exhaustion |
-| WoL / recovery sequencing | READY | durable wake attempts, dependency ordering, configured inter-host wake delay, reboot-safe conservative delay |
-| Configuration validation | READY | strict YAML schema/semantic validation plus dependency-cycle/timing checks |
-| Configuration transactions | READY | candidate/probation/LKG/rollback, startup interrupted-transaction recovery and active-content verification |
-| Health / autofix | READY | watchdog, bounded repair circuit, project-owned service supervision, separate durable health state files |
-| Cockpit management | READY | status/plan/logs plus privileged transactional YAML validate/apply/rollback workflow |
+| Outage safety policy | READY | `recovery.enabled`; online-cancellation debounce; bounded communication loss; durable max-on-battery progress |
+| Recovery safety policy | READY | stable utility, UPS recharge, network and health gates; timeout and post-commit re-checks |
+| NUT ownership / FSD | READY | primary/master validation; multi-primary fail closed; generated integration tests |
+| NUT synchronization | READY | canonical `HOSTSYNC` and `FINALDELAY` rendered from project config |
+| Persistent state | READY | checksum, fsync, atomic rotation and valid previous-generation preservation |
+| Interrupted boot / power bounce | READY | boot reconciliation; renewed-outage epochs; re-shutdown of already-restored hosts when required |
+| Direct host shutdown | READY | accepted v0.1 path is fixed-argv SSH plus NUT/none semantics; bounded retries and `FAILED_SAFE` exhaustion |
+| Managed-host WoL | READY | durable attempts, dependency-aware host ordering, inter-host delay and reboot reconciliation |
+| Configuration validation | READY | strict schema/semantic validation, dependency-cycle/timing checks and armed capability rejection |
+| Configuration transactions | READY | candidate/probation/LKG/rollback plus interrupted-activation startup reconciliation |
+| Health / autofix | READY | watchdog, bounded repair circuit and separate durable system/agent health state |
+| Cockpit management | READY | status/plan/logs and privileged `cockpit-ups-wolctl` YAML validate/apply/rollback workflow |
+| Agent IPC | READY FOR CURRENT SCOPE | bounded Unix-socket request/response; current implemented agent method is `GetHealth`; broader management remains CLI/revision-manager based |
 | Installer | READY | default/silent/TUI share one transactional backend |
-| Interrupted installation | READY | fsynced pending marker, boot-time rollback guard, retryable interrupted recovery |
-| UPS discovery | READY | NUT scanner parsing + explicit driver/port + ambiguity failure |
-| NUT network policy | READY | trusted-LAN default + additive restricted nftables mode |
+| Interrupted installation | READY | durable pending marker and boot-time rollback/recovery guard |
+| systemd environment validation | READY | real install rejects environments where systemd is not PID 1 before transaction state is created |
+| Debian-family package install matrix | READY | Debian 12/13 and Ubuntu 24.04/26.04 systemd containers install generated `.deb`, resolve APT deps, configure NUT dummy UPS, verify services/health/Cockpit and idempotent setup |
+| UPS discovery | READY | NUT scanner parsing, explicit driver/port and ambiguity failure |
+| NUT network policy | READY | trusted-LAN default plus additive restricted nftables mode |
 | Service autostart | READY | systemd enable/start validation and health probation |
 | Synology software integration | READY | monitor-only NUT-secondary account and ownership tests |
-| amd64 software runtime | READY | native runtime + Ubuntu systemd/NUT E2E |
+| amd64 software runtime | READY | native runtime + Ubuntu systemd/NUT E2E + Debian-family package matrix |
 | arm64 software runtime | READY | build + QEMU runtime smoke |
 | riscv64 software runtime | READY | build + QEMU runtime smoke |
-| Build supply chain | READY | GitHub Actions pinned to immutable SHAs; Dependabot enabled |
-| npm reproducibility | READY | committed `package-lock.json`; CI/package builds use `npm ci` |
-| Packaging/checksums | READY | reproducible multi-arch bundles + SHA256SUMS |
+| Build supply chain | READY | first-party Actions pinned to immutable SHAs; Dependabot enabled |
+| Cockpit dependency reproducibility | READY | committed lockfile, `npm ci`, React 19.3.0 and aligned PatternFly 6.6.1 |
+| Packaging/checksums | READY | reproducible multi-arch archives + Debian packages + SHA256SUMS |
+| Project license | READY | AGPL-3.0-or-later; root `LICENSE` present |
 | Real UPS amd64 | BLOCKED / NOT RUN | physical acceptance required |
 | Real UPS arm64 | BLOCKED / NOT RUN | physical acceptance required |
 | Real Synology DSM | BLOCKED / NOT RUN | physical DSM acceptance required |
-| Project license | READY | GNU AGPL-3.0-or-later; canonical root `LICENSE` present |
 | `main` protection | BLOCKED / ADMIN | issue #39; repository administration required |
 
-## 3. Deep-review findings — closure
+## 3. Explicit capability boundary
 
-The 2026-09-20 deep review found the following implementation gaps. Their current status is:
+The canonical schema carries some values reserved for later work. Their presence in the schema does not make them accepted armed-v0.1 capabilities.
 
-- **Automatic recovery disable switch — COMPLETE.** `recovery.enabled: false` is a hard policy gate, including boot reconciliation and stale persisted recovery state.
-- **Power failure during partial recovery — COMPLETE.** A new outage creates a fresh transaction and host snapshot, so an already-restored host is eligible for shutdown again.
-- **State-generation crash consistency — COMPLETE.** A corrupt current generation is never rotated over the only valid previous generation; directory durability is preserved across rotation/activation steps.
-- **Interrupted config activation — COMPLETE.** Agent startup reconciles config history before parsing active YAML and verifies active bytes against the revision manifest, restoring LKG when required.
-- **Direct shutdown failure handling — COMPLETE.** Transient failures receive bounded retries after reconciliation; FSD cannot advance past unresolved direct hosts; exhausted attempts enter durable `FAILED_SAFE`.
-- **Pre-commit utility hysteresis — COMPLETE.** One transient `OL` sample no longer cancels an outage; two consecutive valid online observations are required.
-- **UPS communication loss during outage — COMPLETE.** `communication_loss_grace_seconds` is enforced rather than allowing indefinite uncertainty.
-- **Maximum-on-battery continuity across reboot — COMPLETE.** Monotonic elapsed outage progress is durably checkpointed and resumed without relying on a trustworthy RTC.
-- **Recovery network timeout — COMPLETE.** `network_wait_seconds` is enforced and unresolved critical recovery readiness fails safe.
-- **Post-commit recovery gates — COMPLETE.** Network and critical controller health continue to gate host restoration after recovery commit.
-- **Wake staggering — COMPLETE.** `delay_after_previous_seconds` is enforced without blocking the watchdog/event loop and is conservatively re-applied after reboot.
-- **Dependency-cycle validation — COMPLETE.** Managed host recovery cycles are rejected before a configuration can become known-good.
-- **NUT `HOSTSYNC` / `FINALDELAY` drift — COMPLETE.** Installer-generated `upsmon.conf` receives canonical project timing values.
-- **Existing-NUT multi-primary FSD risk — COMPLETE.** Process-wide `upsmon -c fsd` is rejected when multiple primary/master monitor entries make ownership ambiguous.
-- **Health-state writer race / incomplete service repair — COMPLETE.** Agent UPS health and external system-service health use separate state files; project-owned services are selected from canonical profile/network configuration.
-- **Power loss during installer transaction — COMPLETE.** A durable install marker plus boot recovery restores the pre-install snapshot before automation starts.
-- **Cockpit config management / privilege mismatch — COMPLETE.** Cockpit performs privileged management through the control CLI and transactional revision manager rather than directly editing protected runtime files.
-- **CI supply-chain mutability — COMPLETE.** First-party Actions are pinned to immutable commit SHAs and dependency update monitoring is configured.
-- **npm transitive dependency drift — COMPLETE.** Lockfile is committed and build workflows use `npm ci`.
+The following intentionally fail closed in armed v0.1:
 
-## 4. Installer and interrupted-power readiness
+```text
+shutdown.method: command
+ARP-only host verification
+dependency Wake-on-LAN
+```
 
-The supported entry points remain:
+The current accepted direct-shutdown set is:
+
+```text
+ssh
+nut
+none
+```
+
+Managed-host WoL is implemented; dependency WoL is not yet accepted because dependency actions do not yet have the same durable action-state semantics.
+
+## 4. Deep-review findings — closure
+
+All software findings from the 2026-09-20 deep review are closed, including:
+
+- hard `recovery.enabled` gating;
+- new-outage creation during partial recovery;
+- valid previous-state preservation across torn/corrupt writes;
+- startup restoration of LKG after interrupted config activation;
+- bounded direct-shutdown retries with `FAILED_SAFE` exhaustion;
+- two-sample online cancellation debounce;
+- bounded UPS communication-loss grace;
+- reboot-safe maximum-on-battery accounting;
+- recovery network timeout;
+- post-commit network/health gates;
+- durable/reboot-safe wake staggering;
+- dependency-cycle validation;
+- canonical NUT `HOSTSYNC`/`FINALDELAY` rendering;
+- fail-closed existing-NUT multi-primary ownership;
+- separate health-state writers and bounded project-service repair;
+- interrupted installer boot rollback;
+- Cockpit privileged transactional config management;
+- immutable Action pinning and dependency monitoring;
+- locked npm dependency graph with `npm ci`.
+
+## 5. Installer and interrupted-power readiness
+
+Supported source-tree entry points:
 
 ```bash
 sudo ./install.sh
@@ -84,40 +111,24 @@ sudo ./install.sh --tui
 sudo ./install.sh --silent
 ```
 
-Implemented installer properties include:
+Implemented properties include clean-OS dependency installation, supported platform/architecture checks, local/remote/existing NUT profiles, UPS discovery/explicit selection, Synology opt-in, trusted/restricted networking, one transactional backend, service enablement, health probation, known-good promotion, normal rollback, durable sudden-power-loss recovery, idempotent reinstall and early rejection when systemd is not the active PID-1 system manager.
 
-- supported platform/architecture detection;
-- clean-OS dependency installation;
-- prebuilt release artifacts with source-build fallback for development;
-- local-server, remote-client and existing-NUT profiles;
-- explicit UPS driver/port selection and NUT USB discovery;
-- no silent guessing when discovery is missing or ambiguous;
-- Synology compatibility opt-in;
-- trusted-LAN default plus optional additive restricted nftables policy;
-- no flushing/replacement of unrelated administrator firewall rules;
-- IPv4/IPv6 NUT listeners tied to policy;
-- guided `dialog` TUI with `whiptail` fallback;
-- transactional application/config/service/NUT/Cockpit/firewall state;
-- automatic required-service enablement;
-- health/probation gate before known-good promotion;
-- rollback of normal install/upgrade failures;
-- durable boot recovery after sudden power loss during installation;
-- idempotent reinstall acceptance.
+The Debian-package acceptance workflow additionally boots systemd-enabled Debian 12/13 and Ubuntu 24.04/26.04 containers, installs the generated amd64 `.deb` via APT, configures a NUT dummy UPS, runs safe dry-run setup, verifies agent/health/Cockpit state, and repeats setup for idempotency.
 
-Fresh installations intentionally contain empty live inventory:
+Fresh installations intentionally contain:
 
 ```yaml
 network_dependencies: []
 hosts: []
 ```
 
-Documentation examples are never silently copied into the active configuration.
+and start in `dry-run`.
 
-## 5. Cockpit management readiness
+## 6. Cockpit and control boundary
 
-Cockpit is now a management surface rather than a read-only dashboard.
+Cockpit is a management surface rather than part of the safety-critical engine.
 
-Configuration changes follow this path:
+Configuration mutation follows:
 
 ```text
 Cockpit editor
@@ -125,51 +136,21 @@ Cockpit editor
   -> candidate revision
   -> transient systemd activation transaction
   -> immediate health check
-  -> probation interval
-  -> promote to last-known-good OR automatic rollback
+  -> probation
+  -> promote last-known-good OR rollback
 ```
 
-The activation/probation transaction is independent of the browser session, so closing Cockpit does not terminate an in-flight validation. Startup reconciliation protects against controller power loss during candidate activation.
+The current agent Unix socket is deliberately smaller than older design drafts implied. It implements a bounded request/response transport and the current runtime handler exposes `GetHealth`. Configuration, plan and log operations are provided through the local CLI/revision manager and Cockpit privilege boundary rather than pretending every operation is an agent IPC method.
 
-Sensitive reads and mutations require Cockpit superuser escalation; the UI does not gain direct write access to protected config/state files.
+## 7. Automated acceptance status
 
-## 6. Automated acceptance status
+Automated coverage includes Go unit/vet tests, canonical configuration and NUT generation tests, config transaction reboot/rollback tests, torn/corrupt state fallback, outage/recovery fault simulation, communication loss, AC debounce, max-on-battery reboot continuity, partial-recovery power bounce, network/health recovery gates, durable SSH/FSD/WoL ordering, bounded shutdown retries, wake delay, dependency-cycle rejection, Synology privilege checks, `HOSTSYNC`/`FINALDELAY`, multi-primary rejection, installer discovery/network/rollback tests, Ubuntu 24.04 NUT `dummy-ups` + systemd + Cockpit E2E, the Debian 12/13 + Ubuntu 24.04/26.04 package-install/systemd matrix, amd64 native runtime smoke, arm64/riscv64 QEMU runtime smoke, locked Cockpit typecheck/build and package/checksum validation.
 
-Automated coverage includes:
+Unsupported future capabilities are covered by negative/fail-closed validation rather than positive armed-execution tests.
 
-- Go unit tests and `go vet`;
-- canonical YAML and generated NUT integration tests;
-- config candidate/probation/rollback/reboot reconciliation;
-- active-config content/manifest mismatch recovery;
-- corrupt/torn state fallback and valid-generation preservation;
-- outage/recovery lifecycle simulation;
-- two-sample AC cancellation debounce;
-- bounded UPS communication loss;
-- reboot-safe maximum-on-battery timing;
-- power bounce during partial recovery and second-shutdown behavior;
-- post-reboot AC-stability restart;
-- recovery network timeout and critical-health gating;
-- durable action ordering before SSH/FSD/WoL side effects;
-- bounded direct shutdown retries and fail-safe exhaustion;
-- wake-delay sequencing and reboot resume behavior;
-- recovery dependency-cycle rejection;
-- generated NUT primary/secondary + Synology privilege tests;
-- canonical `HOSTSYNC` / `FINALDELAY` generation;
-- existing-NUT multi-primary FSD rejection;
-- installer discovery parsing and ambiguity rules;
-- restricted firewall plan generation and no-firewall-flush assertion;
-- interrupted-install boot rollback;
-- installer option/self-check matrix including TUI and restricted mode;
-- real Ubuntu 24.04 NUT `dummy-ups` + systemd + Cockpit install/probation/idempotency/rollback acceptance;
-- amd64 native runtime smoke;
-- arm64 QEMU runtime smoke;
-- riscv64 QEMU runtime smoke;
-- Cockpit strict TypeScript/build validation using locked npm dependencies;
-- reproducible package/checksum verification.
+## 8. Physical release gate
 
-## 7. Physical release gate
-
-Software simulation cannot establish electrical behavior. Issue #10 remains open until retained evidence exists for:
+Issue #10 remains open until retained evidence exists for:
 
 ```text
 [ ] amd64 controller + supported real UPS
@@ -177,71 +158,46 @@ Software simulation cannot establish electrical behavior. Issue #10 remains open
 [ ] real Synology DSM configured as NUT secondary
 ```
 
-Each UPS run must cover at least:
+Each real UPS run must demonstrate controller/network backed-power topology, real OB detection, shutdown ordering/FSD behavior, interruption/reboot safety, stable-AC recovery, default 80% recharge gating where available, managed-host recovery, controller automatic boot after output return and retained logs/config/state evidence.
 
-- controller and required network devices on battery-backed outputs;
-- real OB detection;
-- shutdown ordering and NUT-primary behavior;
-- interrupted/repeated boot behavior where practical;
-- utility restoration and stable-AC gate;
-- battery recovery gate (default 80%);
-- ordered WoL restoration;
-- controller automatic boot when UPS output returns;
-- retained logs/config/state evidence.
-
-Use `scripts/test/hardware-preflight.sh` before the destructive test. Software/QEMU results must never be recorded as physical PASS.
-
-## 8. Synology release gate
-
-Software configuration is ready, but real DSM behavior must still be demonstrated for release. Acceptance must confirm:
-
-- DSM connects to the generated NUT service;
-- the Synology account remains monitor-only;
-- DSM shuts itself down through the NUT-secondary path;
-- the agent does not duplicate that shutdown through SSH;
-- recovery/WoL behavior works for the selected NAS/DSM configuration;
-- actual DSM behavior matches the documented compatibility profile for the tested DSM version.
+Use `scripts/test/hardware-preflight.sh` before destructive acceptance. QEMU, `dummy-ups` and `ami3go/USB-UPS-Simulator` are valuable test tools but must never be recorded as a real-UPS physical PASS.
 
 ## 9. Release governance
 
 ### License
 
-Issue #12 remains intentionally open. Selecting the project license is a project-owner/legal decision and is not automated. Tagged publication is already guarded by a workflow check requiring a root `LICENSE`.
+Complete. The project is `AGPL-3.0-or-later`, the root license is present, and release artifacts include the license. Future copied/adapted upstream source still requires exact per-component compatibility/attribution review in `THIRD_PARTY_NOTICES.md`.
 
 ### Main-branch protection
 
-Issue #39 tracks the repository-admin step to require pull requests and successful CI before changes reach `main`, and to block force-push/deletion. The connected GitHub integration does not have administration permission to apply that setting directly.
+Issue #39 remains open. `main` should require pull requests and successful project CI, block force-push/deletion, and keep any emergency/admin bypass explicit and auditable. This is an admin setting outside the current connector permissions.
 
 ### Dependency/update controls
 
-GitHub Actions are pinned to immutable commit SHAs. Dependabot monitors GitHub Actions, Go modules and Cockpit npm dependencies. Cockpit transitive dependencies are fixed by the committed lockfile and installed with `npm ci` in CI and packaging.
+GitHub Actions are pinned to immutable commit SHAs. Dependabot monitors GitHub Actions, Go and Cockpit npm dependencies. The Cockpit dependency graph is locked and installed with `npm ci`.
 
 ## 10. Known non-blocking v0.1 limitations
 
-These remain outside the defined v0.1 safety baseline:
-
 - no multi-UPS policy;
-- no Proxmox-specific API adapter yet;
-- no arbitrary shell shutdown command execution;
-- no dependency WoL until dependency actions receive the same durable semantics as managed hosts;
+- no Proxmox-specific API adapter;
+- no armed arbitrary/allowlisted command shutdown adapter yet;
+- no armed ARP-only verification;
+- no dependency WoL until durable dependency action state exists;
 - no advanced writable UPS command UI;
-- no native Go NUT protocol client requirement;
+- no native Go NUT protocol requirement;
 - no Prometheus/notification/history subsystem;
-- device-specific form-based Cockpit CRUD can be expanded; the full transactional YAML configuration workflow already exists.
+- form-based Cockpit CRUD can expand beyond the current transactional YAML workflow.
 
 ## 11. Final release checklist
 
-A public v0.1 tag is allowed only when all boxes below are satisfied:
-
 ```text
 [x] architecture and safety model implemented
-[x] armed orchestration implemented
+[x] armed accepted-feature orchestration implemented
 [x] outage communication-loss / hysteresis / reboot timing safeguards implemented
 [x] recovery network / health / wake-delay safeguards implemented
 [x] bounded direct-host shutdown retry + FAILED_SAFE implemented
 [x] automatic service startup / health / autofix implemented
 [x] configuration LKG / rollback / startup recovery implemented
-[x] boot interruption / power-bounce handling implemented
 [x] interrupted installer rollback on next boot implemented
 [x] NUT HOSTSYNC / FSD ownership safeguards implemented
 [x] Synology software integration implemented
@@ -251,13 +207,14 @@ A public v0.1 tag is allowed only when all boxes below are satisfied:
 [x] Cockpit transactional configuration management implemented
 [x] immutable Actions + dependency monitoring implemented
 [x] npm lockfile / npm ci reproducibility implemented
-[x] multi-arch build/package/checksum pipeline implemented
+[x] multi-arch archive + Debian package + checksum pipeline implemented
+[x] Debian 12/13 + Ubuntu 24.04/26.04 systemd package-install matrix implemented
+[x] AGPL-3.0-or-later root license present
 [x] automated software acceptance green
 [ ] physical amd64 UPS acceptance retained
 [ ] physical arm64 UPS acceptance retained
 [ ] real Synology DSM acceptance retained
-[x] root LICENSE selected and added (`AGPL-3.0-or-later`)
 [ ] main branch protection configured (issue #39)
 ```
 
-**Current verdict:** software candidate is ready for physical acceptance. Public v0.1 release remains blocked only by physical validation and repository-owner governance decisions.
+**Current verdict:** the software candidate is ready for physical acceptance. Public v0.1 remains blocked only by real-hardware evidence and repository-owner branch governance.

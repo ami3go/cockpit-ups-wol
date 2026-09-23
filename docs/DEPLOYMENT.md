@@ -4,9 +4,7 @@
 
 ## 1. Controller power source
 
-The controller SBC SHALL be powered from a **battery-backed UPS output** unless it has another independently backed power source with equivalent reliability.
-
-A surge-only UPS outlet is not sufficient.
+The controller SBC SHALL be powered from a **battery-backed UPS output** unless it has an independently backed source with equivalent reliability. A surge-only UPS outlet is not sufficient.
 
 Preferred local-UPS topology:
 
@@ -21,46 +19,26 @@ Preferred local-UPS topology:
           └──── USB/serial/network UPS data
 ```
 
-The controller needs both:
+The controller needs both UPS-backed electrical power and a trustworthy UPS status/control data path.
 
-```text
-UPS-backed electrical power
-UPS status/control data path
-```
+## 2. Why controller/network backing is mandatory
 
-## 2. Why this is mandatory
+During an outage the controller must remain available while it records pre-outage state, evaluates policy, performs ordered direct shutdown, coordinates NUT FSD ownership, persists the transaction and reconciles faults/reboots.
 
-The controller must remain available while it:
+Powering only the SBC is insufficient when its required LAN path disappears. At minimum, the switching/routing infrastructure needed to reach protected devices during shutdown SHALL remain powered long enough for coordination.
 
-- observes outage progression
-- records pre-outage host state
-- performs ordered pre-FSD shutdown
-- coordinates NUT shutdown ownership
-- persists transaction state
-- performs health/reconciliation logic
-
-A controller powered only from utility mains would disappear at the start of the event it is supposed to manage.
-
-## 3. Network path must remain available
-
-Powering only the SBC is insufficient if its required LAN path fails.
-
-At least the infrastructure required to reach protected devices during shutdown SHALL remain available long enough for shutdown coordination.
-
-Typical requirement:
+Typical deployment:
 
 ```text
 controller SBC   UPS-backed
 core switch      UPS-backed
-router/firewall  UPS-backed when routing/VLAN services are required locally
-Wi-Fi AP         UPS-backed only if protected clients depend on Wi-Fi control path
+router/firewall  UPS-backed when routing/VLAN services are needed locally
+Wi-Fi AP         UPS-backed only when protected clients depend on Wi-Fi control
 ```
 
-Pure Layer-2 devices on the same VLAN may not require a router if the switch remains operational.
+Pure same-VLAN Layer-2 operation may not require a router when the switch path remains available.
 
-## 4. Managed loads
-
-Heavy loads should shut down before infrastructure/controller loads.
+## 3. Shutdown ordering
 
 Typical order:
 
@@ -68,29 +46,27 @@ Typical order:
 workstations / application hosts
 NAS / storage
 hypervisors
-NUT secondaries as required
+NUT secondary group
 controller SBC / NUT primary LAST
 ```
 
-Exact behavior for NUT secondaries is defined in `docs/NUT_SHUTDOWN_MODEL.md`.
+Exact NUT secondary semantics are defined in `docs/NUT_SHUTDOWN_MODEL.md`. The controller must not present a false exact ordering among secondaries that respond to the same FSD wave.
 
-## 5. Controller automatic power-on
+## 4. Controller automatic power-on
 
 For unattended recovery, controller hardware SHALL boot automatically whenever backed output power is re-applied.
 
-SBCs typically boot automatically on power application.
-
-PC-class hardware SHALL use firmware behavior equivalent to:
+SBCs normally boot on applied power. PC-class systems should use firmware behavior equivalent to:
 
 ```text
 Restore on AC Power Loss = Power On
 ```
 
-If automatic restart cannot be verified, the deployment SHALL NOT be considered fully unattended-recovery capable.
+If automatic restart cannot be verified, the deployment is not fully unattended-recovery capable.
 
-## 6. UPS output-return capability
+## 5. UPS output-return capability
 
-The installer/arming flow classifies UPS output behavior as:
+The deployment records one of:
 
 ```text
 POWER_CYCLE_VERIFIED
@@ -98,145 +74,103 @@ POWER_CYCLE_UNVERIFIED
 MONITOR_ONLY
 ```
 
-A fully automatic controller power-off → controller boot recovery path requires either:
+A fully automatic controller power-off -> controller boot path requires either verified UPS output shutdown/return behavior or another verified automatic restart mechanism.
 
-- verified UPS output shutdown/return behavior, or
-- another verified automatic controller restart mechanism.
+## 6. Local USB UPS deployment
 
-## 7. Local USB UPS deployment
-
-Preferred first-release topology:
+Preferred v0.1 topology:
 
 ```text
-UPS battery-backed AC outlet → SBC power supply
-UPS USB/serial              → SBC
-SBC                         → Ethernet switch
-SBC NUT                     → Synology / Linux secondaries
+UPS battery-backed AC outlet -> SBC power supply
+UPS USB/serial              -> SBC
+SBC                         -> Ethernet switch
+SBC NUT                     -> Synology / Linux secondaries
 ```
 
-The UPS USB connection must remain physically stable and accessible to the NUT driver.
+The UPS data connection must remain physically stable and accessible to the NUT driver.
 
-## 8. Remote NUT deployment
+## 7. Remote NUT deployment
 
-When UPS status comes from another server:
+When UPS state comes from another server:
 
-- the remote NUT server and network path become dependencies
-- the local controller is not automatically NUT primary
-- loss of remote NUT reachability becomes `UNKNOWN`, not `OL`
-- final UPS output-control ownership remains with the designated remote primary unless explicitly redesigned
+- the remote NUT server and network path are dependencies;
+- this controller is not automatically NUT primary;
+- loss of remote NUT reachability becomes `UNKNOWN`, not `OL`;
+- FSD/final output ownership remains with the validated remote primary unless deliberately redesigned.
 
-## 9. Switch/router recovery behavior
+## 8. Network dependency recovery
 
-Network infrastructure may be modeled as:
+Accepted armed-v0.1 dependency startup modes are:
 
 ```text
 auto-power
 wait-only
-wol
 ```
 
-Typical unmanaged switch:
+Examples:
+
+- unmanaged switch: `startup: auto-power`;
+- slow router/firewall: `startup: wait-only` with TCP/ping readiness.
+
+The schema also contains dependency `startup: wol`, but **dependency Wake-on-LAN is not an accepted armed-v0.1 behavior**. It fails closed until dependency actions have durable request/retry/reconciliation state. Managed-host WoL remains supported separately.
+
+The agent waits for required dependency readiness before restoring dependent managed hosts.
+
+## 9. Static addressing and VLANs
+
+The controller SHOULD use stable addressing through DHCP reservation or a deliberately configured static address. The installer recommends this but does not rewrite working network configuration without explicit authorization.
+
+Managed-host WoL is normally local-broadcast based. Per-host configuration supports interface, IPv4 broadcast address and UDP port. Directed/routed broadcast is not assumed; cross-VLAN deployments must verify network-device support and security policy.
+
+## 10. Physical deployment checklist
+
+Before `armed` mode:
 
 ```text
-startup: auto-power
-```
-
-The controller waits until the switch path is usable before waking dependent hosts.
-
-A router that boots slowly may be `wait-only` with a TCP/ping readiness check.
-
-## 10. Static addressing
-
-The controller SHOULD use a stable LAN address through:
-
-```text
-DHCP reservation
-or
-static IP configuration
-```
-
-The installer SHALL recommend this but SHALL NOT rewrite working network configuration without explicit authorization.
-
-## 11. VLANs and routed WoL
-
-WoL is normally local-broadcast based.
-
-Per-host settings support:
-
-```text
-interface
-broadcast address
-UDP port
-```
-
-Routed/directed broadcast WoL SHALL not be assumed. Deployments that require cross-VLAN WoL must verify network-device support and security policy.
-
-## 12. Physical deployment checklist
-
-Before `armed` mode is allowed, the UI/TUI should confirm or warn on:
-
-```text
-[ ] controller plugged into UPS battery-backed outlet
-[ ] controller auto-boots when power is applied
-[ ] required network switch remains UPS-backed
-[ ] router/VLAN path remains available where required
+[ ] controller uses a UPS battery-backed output
+[ ] controller automatically boots when backed power returns
+[ ] required core switch remains backed
+[ ] router/VLAN path remains backed where required
 [ ] UPS data link is functional
 [ ] NUT role/authority is validated
-[ ] output power-cycle capability classification is known
-[ ] Synology/NUT clients can reach TCP 3493
-[ ] WoL broadcast/interface configuration tested
-[ ] dry-run shutdown/recovery plan reviewed
+[ ] UPS output-cycle classification is known
+[ ] Synology/NUT clients can reach TCP 3493 where used
+[ ] every managed-host WoL subnet/broadcast is tested
+[ ] shutdown/recovery plan reviewed in dry-run
 ```
 
-Hardware facts that cannot be detected automatically may require administrator confirmation.
+Hardware facts that cannot be detected automatically require administrator confirmation and, for the release gate, retained test evidence.
 
-## 13. Recommended controller characteristics
-
-For v0.1:
+## 11. Recommended controller characteristics
 
 ```text
 Linux/systemd capable
 Ethernet preferred
-USB host when local USB UPS is used
+USB host for local USB UPS
 persistent storage with reliable fsync semantics
 amd64, arm64 or riscv64
 512 MiB RAM minimum target for full stack
 1 GiB RAM recommended
 ```
 
-Very constrained platforms may later use headless mode without Cockpit.
+Real installation requires systemd to be the active PID-1 system manager. Container/chroot environments without a functional systemd manager are rejected before installation transaction state is created.
 
-## 14. Failure examples
+## 12. Failure examples
 
 ### SBC backed, switch not backed
 
-```text
-utility fails
-SBC remains alive
-switch dies
-SBC cannot reach NAS/Proxmox
-```
+The SBC survives but cannot reach managed hosts. This is not suitable for network-coordinated shutdown unless the targets are independently protected.
 
-This deployment is not suitable for network-coordinated shutdown unless the devices are independently protected through NUT/local policy.
+### Monitor-only UPS, controller powers off
 
-### UPS monitor-only, SBC shuts down
+If UPS output never cycles, a powered-off controller may remain off after utility returns. Automatic controller shutdown therefore requires verified output return or another verified restart mechanism.
 
-If the UPS never removes/re-applies its output, a powered-off SBC may remain off after utility returns. Therefore controller shutdown is prohibited unless an alternate verified wake mechanism exists.
+### Router unavailable, local VLAN still usable
 
-### Router unavailable but local VLAN still works
+Recovery readiness should test the dependencies actually required by targets, not Internet connectivity by default.
 
-The recovery network gate should test the dependencies actually required for target hosts instead of blindly requiring Internet connectivity.
+## 13. Acceptance
 
-## 15. Acceptance tests
+Physical acceptance should include utility removal with controller/network on backed outputs, real OB observation, shutdown coordination, controller-last/FSD behavior, output-return/automatic-boot behavior where applicable, repeated power bounce, dependency readiness gating, managed-host WoL and retained evidence.
 
-Deployment acceptance should include:
-
-```text
-pull utility power with SBC/switch on UPS
-verify management path survives
-verify local NUT secondaries remain reachable
-restore utility and verify controller boot behavior after a full output cycle
-verify repeated power bounce during controller boot
-verify network dependency readiness delays host recovery
-verify WoL on every required subnet/VLAN
-```
+The authoritative physical procedure is `docs/HARDWARE_ACCEPTANCE.md`.

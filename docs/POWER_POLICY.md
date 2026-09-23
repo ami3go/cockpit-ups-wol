@@ -2,13 +2,9 @@
 
 **Status:** Normative v0.1 behavior
 
-## 1. Purpose
+## 1. Safety inputs
 
-This document defines exact precedence for UPS events, shutdown triggers, cancellation, recovery gating and power-bounce handling.
-
-## 2. Normalized UPS inputs
-
-The agent SHALL normalize NUT observations into these safety inputs:
+The agent normalizes NUT observations into at least:
 
 ```text
 utility = ONLINE | ON_BATTERY | UNKNOWN
@@ -18,88 +14,80 @@ battery_charge = percentage | unavailable
 battery_runtime = seconds | unavailable
 ```
 
-Missing or failed NUT queries become `UNKNOWN`/`unavailable`. They never imply `ONLINE` or full battery.
+Missing/failed NUT queries become `UNKNOWN`/`unavailable`. They never imply online utility or full battery.
 
-## 3. Shutdown trigger precedence
+## 2. Shutdown trigger precedence
 
-When `utility = ON_BATTERY`, evaluate triggers in this order:
+While on battery, critical triggers are evaluated in safety order:
 
-1. `fsd == true`
-2. `low_battery == true`
-3. runtime <= configured critical runtime
-4. battery charge <= configured critical charge
-5. time-on-battery >= configured maximum
-6. grace timer / continued monitoring
+1. observed/latched FSD;
+2. low battery;
+3. configured critical runtime;
+4. configured critical battery percentage;
+5. configured maximum time on battery;
+6. ordinary outage grace/continued monitoring.
 
-The first satisfied critical trigger commits shutdown.
+The first satisfied critical trigger commits shutdown. Project policy never overrides an observed FSD by deciding to keep systems running.
 
-A project-managed policy SHALL NOT override an observed FSD by deciding to keep systems running.
+## 3. Communication loss
 
-## 4. Communication failure
+Communication loss produces `UNKNOWN` and retains prior outage context.
 
-If UPS communication becomes unavailable:
+Before shutdown commit, communication uncertainty is tolerated only for the configured bounded `communication_loss_grace_seconds`. It cannot leave an outage indefinitely unresolved.
 
-```text
-ONLINE      + comm loss → UNKNOWN
-ON_BATTERY  + comm loss → UNKNOWN with prior-outage context retained
-```
+After shutdown commit, communication loss never uncommits the transaction.
 
-Communication loss SHALL NOT reset an outage transaction.
+## 4. Pre-commit utility cancellation
 
-Before shutdown commit, the policy may wait/retry for a bounded period according to configuration. After shutdown commit, communication loss never uncommits shutdown.
+Before `SHUTDOWN_COMMITTED`, a pending outage may be cancelled only after reconciled valid online utility returns and no latched safety-critical condition remains.
 
-## 5. Pre-commit cancellation
+v0.1 requires at least **two consecutive valid ONLINE observations** separated by the normal polling interval. A single transient `OL` sample does not cancel an outage.
 
-Before `SHUTDOWN_COMMITTED`, a pending outage can be cancelled only when:
+## 5. Shutdown commit
 
-```text
-valid ONLINE state returns
-AND
-no FSD is latched
-AND
-no safety-critical condition remains
-```
-
-The agent then returns to `NORMAL` after reconciliation.
-
-A single transient `OL` sample is sufficient to cancel only if the system has not crossed the commit point and the configured debounce policy permits it. For v0.1, use at least two consecutive valid ONLINE samples separated by one normal polling interval.
-
-## 6. Shutdown commit semantics
-
-Before the first destructive action:
+Before the first destructive side effect:
 
 ```text
 persist SHUTDOWN_COMMITTED
-fsync state
-then execute external shutdown action
+fsync durable state
+then execute accepted external shutdown action
 ```
 
 Once committed:
 
-- restored utility does not roll back the transaction
-- FSD, once requested, is not undone
-- incomplete host actions are reconciled on restart
-- the project proceeds to the safe shutdown/recovery cycle
+- restored utility does not erase the shutdown transaction;
+- incomplete host actions are reconciled after restart;
+- FSD, once requested, is not undone;
+- the system proceeds through shutdown/wait/recovery reconciliation.
 
-## 7. Recovery entry
+## 6. Reboot-safe outage duration
 
-Recovery can begin only from a committed or completed outage transaction when all required gates pass:
+`max_on_battery_seconds` must remain meaningful across controller/agent restart. The implementation durably checkpoints outage progress and resumes conservatively without relying on a trustworthy wall clock.
+
+A reboot during an already-active outage does not grant a fresh grace period.
+
+## 7. Recovery entry gates
+
+Automatic recovery requires all configured mandatory gates:
 
 ```text
-valid ONLINE UPS state
+recovery.enabled = true
+valid ONLINE NUT state
 continuous utility stability
-battery/recharge gate
-network/dependency readiness
+UPS charge/runtime/recharge gate
+required network/dependency readiness
 known-good configuration
-healthy enough control stack
-no unresolved critical transaction error
+acceptable control-stack health
+no unresolved critical transaction failure
 ```
 
-Default utility-stability interval is 120 seconds.
+Default utility-stability interval: 120 seconds.
+
+`recovery.enabled: false` is a hard gate, including boot reconciliation of stale recovery state.
 
 ## 8. Utility-stability hysteresis
 
-The recovery stability timer starts from zero after the first trustworthy ONLINE observation.
+The stable-utility timer starts from zero after trustworthy ONLINE state is observed.
 
 It is invalidated by:
 
@@ -107,14 +95,13 @@ It is invalidated by:
 ON_BATTERY
 LOW_BATTERY
 FSD
-UPS communication loss long enough to lose proof of continuity
-controller reboot
-agent restart that loses monotonic continuity
+loss of trustworthy UPS communication
+controller/agent restart that loses monotonic continuity
 ```
 
-After invalidation, the timer starts again only after trustworthy ONLINE data resumes.
+An uncontrolled restart therefore requires the stability interval to be proven again from zero.
 
-## 9. Battery recovery gate
+## 9. UPS recovery gate
 
 Default:
 
@@ -122,147 +109,122 @@ Default:
 battery_charge_min = 80%
 ```
 
-Fallback hierarchy:
+Fallback order:
 
 ```text
 battery.charge
-→ battery.runtime
-→ configured recharge time
-→ manual recovery
+-> battery.runtime
+-> configured recharge time
+-> manual recovery
 ```
 
-No missing value may silently pass the gate.
+Missing values never silently pass.
 
-## 10. Recovery commit and charge hysteresis
+## 10. Recovery commit
 
-Before waking the first managed host:
+Before the first managed-host wake side effect:
 
 ```text
 persist RECOVERY_STARTED
-fsync state
+fsync durable state
 then execute first recovery action
 ```
 
-The battery threshold gates **entry** into recovery.
+The charge/runtime threshold is an **entry** gate. A minor charge decrease after recovery starts does not reverse recovery by itself while utility and all other safety evidence remain trustworthy.
 
-After `RECOVERY_STARTED`, a small battery drop caused by restored load does not reverse recovery by itself.
-
-Example:
-
-```text
-battery reaches 80%
-RECOVERY_STARTED committed
-NAS wakes
-battery falls to 79%
-utility still ONLINE and otherwise healthy
-→ continue recovery
-```
-
-Recovery is interrupted/reconciled only by a real unsafe condition, including:
-
-```text
-ON_BATTERY
-LOW_BATTERY
-FSD
-loss of trustworthy UPS state
-critical controller health failure
-```
+Network and critical controller health continue to gate new host restoration after recovery commit; passing the initial gate does not disable those protections.
 
 ## 11. Power failure during RECOVERY_WAIT
 
 If utility fails before `RECOVERY_STARTED`:
 
-```text
-invalidate recovery gates
-return to ON_BATTERY / outage handling
-send no wake actions
-```
-
-The original outage transaction remains active.
+- invalidate stable-utility/recovery proof;
+- return to outage handling;
+- send no wake actions;
+- retain the durable outage transaction context.
 
 ## 12. Power failure during RESTORE_HOSTS
 
-If utility fails after recovery has started:
+A renewed outage after some hosts have been restored is treated as a **new durable outage epoch** linked to the prior recovery transaction.
 
-1. persist the new unsafe UPS observation
-2. stop issuing new wake actions
-3. re-evaluate hosts already recovered
-4. re-enter outage handling using the same transaction lineage or a linked new outage epoch
-5. never assume a `wol_sent` host is either online or offline without checking
+The agent:
 
-Hosts already online may require another shutdown according to policy.
+1. persists the unsafe UPS observation;
+2. stops issuing new wake actions;
+3. creates/records a fresh outage transaction identity/snapshot for the renewed outage;
+4. re-evaluates hosts already restored;
+5. permits those now-online hosts to become shutdown targets again according to policy;
+6. never assumes a `wol_sent` host is online/offline without verification.
+
+This avoids the old failure mode where a host restored during partial recovery could be skipped during the next outage because its prior shutdown was already marked complete.
 
 ## 13. Repeated power bounce
 
-Any number of sequences like:
+Sequences such as:
 
 ```text
-OL → OB → OL → OB → OL
+OL -> OB -> OL -> OB -> OL
 ```
 
-must not produce duplicate transaction completion or premature wake.
+must not cause duplicate transaction completion or premature wake. Every loss of trustworthy online evidence before recovery commit resets the stability gate; every renewed outage during partial restoration starts a fresh outage epoch.
 
-Before recovery commit, every loss of trustworthy ONLINE resets the stable-utility gate.
+## 14. Controller shutdown policy
 
-## 14. Controller-specific shutdown
+The controller is last. In local NUT-primary mode, after the project commits the critical shutdown and pre-FSD direct hosts settle, primary `upsmon` owns FSD/secondary synchronization/controller shutdown timing.
 
-The controller is last.
+If verified UPS output return or another verified automatic restart mechanism does not exist, policy must not assume a powered-off controller will later reboot unattended.
 
-For the v0.1 NUT-primary model, once the full critical shutdown transaction reaches FSD, primary `upsmon` owns controller shutdown timing.
+## 15. Host verification
 
-For profiles where no validated UPS output power-cycle exists, the controller SHALL NOT power off automatically unless another verified restart mechanism exists.
+A host is not declared shut down or recovered from one transient probe. Configured consecutive observations are required.
 
-## 15. Host verification hysteresis
+Accepted armed-v0.1 deterministic verification paths are TCP/ping or implemented adapter-specific checks. ARP-only verification is intentionally unsupported in armed v0.1 and fails closed.
 
-A host SHALL NOT be declared shut down or recovered from one transient probe.
-
-Default verification concept:
+Typical concept:
 
 ```text
 success_consecutive = 3
 probe_interval = 5 s
 ```
 
-Shutdown success requires 3 consecutive offline results after a shutdown request.
-Wake success requires 3 consecutive online results after a wake request.
-
-Methods may be `tcp`, `ping`, `arp`, or an adapter-specific check. `tcp`/adapter-specific checks are preferred where available.
-
-## 16. Priority interaction
+## 16. Ordering
 
 Shutdown:
 
 ```text
 lower numeric priority first
-pre-FSD ordered adapters first
-NUT secondaries as FSD group
-controller primary last
+accepted pre-FSD SSH hosts
+NUT secondary FSD group
+controller/NUT primary last
 ```
 
 Recovery:
 
 ```text
-lower numeric wake priority first
-wait for configured verification/delay before next dependency group
+required dependencies ready
+lower numeric managed-host wake priority first
+configured inter-host delay/verification
 ```
 
-## 17. Policy acceptance tests
+Managed-host Wake-on-LAN is implemented. Dependency WoL is not accepted in armed v0.1.
 
-Required cases:
+## 17. Acceptance cases
+
+Mandatory policy coverage includes:
 
 ```text
-short OB then OL before commit
-OB until time threshold
+short OB then debounced OL before commit
+OB until grace/critical threshold
 OB + LB
-FSD while OL/other mixed tokens
-runtime threshold before charge threshold
-charge threshold before runtime threshold
-comm loss while NORMAL
-comm loss while ON_BATTERY
-OL before commit cancels
-OL after commit does not cancel
+FSD observation
+runtime/charge/max-on-battery precedence
+communication loss while normal/on-battery
+reboot during active outage without fresh grace
+OL after commit does not erase shutdown
 power bounce during RECOVERY_WAIT
-80% gate then drop to 79% after recovery commit
-power fail during RESTORE_HOSTS
-reboot during each major state
+80% entry gate then small post-commit charge drop
+network/health failure after RECOVERY_STARTED
+power fail during RESTORE_HOSTS creates new outage epoch
+already-restored host is eligible for shutdown in renewed outage
+reboot during each major durable state
 ```

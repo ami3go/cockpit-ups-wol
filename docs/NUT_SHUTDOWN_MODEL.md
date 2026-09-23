@@ -1,30 +1,17 @@
 # NUT Shutdown Ownership Model
 
-**Status:** Normative v0.1 design  
-**Applies to:** local UPS server mode, Synology/Linux NUT clients, FSD, controller shutdown and UPS output power-off
+**Status:** Normative v0.1 behavior  
+**Applies to:** local UPS server mode, Synology/Linux NUT clients, FSD, controller shutdown and final UPS output handling
 
 ## 1. Goal
 
-`cockpit-ups-wol` must have exactly one authority for each stage of a critical shutdown. The agent may decide **when** shutdown is required, but it must not compete with NUT's primary/secondary shutdown protocol or independently cut UPS output while clients may still be running.
+`cockpit-ups-wol` uses exactly one authority for each critical-shutdown stage. The agent decides **when** the project policy requires shutdown and handles accepted pre-FSD direct hosts, while NUT owns primary/secondary FSD propagation and the late system-shutdown/output path.
 
-This document defines ownership for v0.1.
+The agent must not compete with NUT by independently cutting UPS output while secondaries may still be running.
 
-## 2. Authoritative references
+## 2. Local-UPS role assignment
 
-Current NUT documentation used for this design:
-
-- `upsmon(8)`: https://networkupstools.org/docs/man/upsmon.html
-- `upsmon.conf(5)`: https://networkupstools.org/docs/man/upsmon.conf.html
-- `upsdrvctl(8)`: https://networkupstools.org/docs/man/upsdrvctl.html
-- `upsdrvsvcctl(8)`: https://networkupstools.org/docs/man/upsdrvsvcctl.html
-- `ups.conf(5)`: https://networkupstools.org/docs/man/ups.conf.html
-- `upssched(8)`: https://networkupstools.org/docs/man/upssched.html
-
-NUT documents that the primary `upsmon` sets FSD, waits for secondaries (bounded by `HOSTSYNC`), runs the local `SHUTDOWNCMD`, and leaves final UPS power-off to the system shutdown path/driver shutdown handling.
-
-## 3. v0.1 local-UPS role assignment
-
-For a UPS physically attached to the controller SBC:
+For a UPS physically attached to the controller:
 
 ```text
 Controller SBC
@@ -37,7 +24,7 @@ Synology / Linux NUT clients
   └─ upsmon SECONDARY
 ```
 
-The controller SBC SHALL be the only NUT primary for that locally attached UPS.
+The controller is the only validated NUT primary for that local UPS.
 
 Synology compatibility remains monitor-only:
 
@@ -47,101 +34,97 @@ Synology compatibility remains monitor-only:
     upsmon secondary
 ```
 
-Legacy installations may use the historical `slave` keyword when required by their NUT version.
+Legacy `slave` syntax is used only when required by the installed NUT version.
 
-## 4. Ownership matrix
+## 3. Ownership matrix
 
-| Operation | Owner | Agent allowed? |
-|---|---|---:|
-| read UPS variables/status | NUT driver/upsd | yes, through NUT |
-| decide project shutdown policy | `cockpit-ups-wol-agent` | yes |
-| pre-FSD shutdown of non-NUT managed hosts | agent host adapters | yes |
-| set NUT FSD | primary `upsmon` | agent may request via `upsmon -c fsd` |
-| notify NUT secondaries of FSD | `upsd` / primary `upsmon` protocol | no direct replacement |
-| secondary local OS shutdown | each secondary `upsmon`/OS | no |
-| primary/controller OS shutdown | primary `upsmon` via configured `SHUTDOWNCMD` | no direct bypass in normal flow |
-| final UPS driver shutdown/power-cycle command | OS/NUT shutdown integration | no direct runtime call |
-| arbitrary `load.off` / vendor instant commands | manual privileged admin path only | never automatic in v0.1 |
+| Operation | Owner | Project agent behavior |
+|---|---|---|
+| read UPS variables/status | NUT driver/upsd | reads through NUT |
+| decide project shutdown policy | `cockpit-ups-wol-agent` | owns decision |
+| pre-FSD direct shutdown | agent host adapter | accepted v0.1 path: fixed-argv SSH only where configured |
+| NUT-secondary shutdown | each secondary `upsmon`/OS | agent does not duplicate direct shutdown |
+| set FSD | validated primary `upsmon` | agent may request `upsmon -c fsd` |
+| primary/controller OS shutdown | primary `upsmon` / configured `SHUTDOWNCMD` | no normal bypass |
+| final UPS driver shutdown/return | distro NUT/system shutdown integration | no long-running-agent direct call |
+| arbitrary load-off/vendor commands | privileged/manual future/admin path | never automatic v0.1 behavior |
 
-## 5. Critical shutdown sequence
+`shutdown.method: command` is not an accepted armed-v0.1 pre-FSD adapter. The schema retains it for future work, but armed validation fails closed until a durable allowlisted command model is implemented and accepted.
 
-For local NUT-primary mode the normal v0.1 sequence is:
+## 4. Critical shutdown sequence
 
 ```text
-policy trigger reached
+shutdown policy trigger
       ↓
-agent persists SHUTDOWN_COMMITTED + fsync
+persist SHUTDOWN_COMMITTED + fsync
       ↓
-agent finishes required pre-FSD actions
-(non-NUT SSH/command-managed hosts)
+finish accepted pre-FSD direct SSH hosts
       ↓
-agent asks PRIMARY upsmon to enter FSD
+request FSD through validated PRIMARY upsmon
       ↓
 primary upsmon sets FSD in upsd
       ↓
-NUT secondaries observe critical/FSD and shut down
+NUT secondaries observe FSD/critical state and shut down
       ↓
-primary upsmon waits for secondaries / HOSTSYNC bound
+primary waits for secondaries / HOSTSYNC bound
       ↓
-primary upsmon runs controller SHUTDOWNCMD
+primary applies FINALDELAY then SHUTDOWNCMD
       ↓
-controller OS enters shutdown
+controller OS shuts down
       ↓
-late NUT/OS shutdown integration issues driver shutdown
-      ↓
-UPS turns load off / schedules return if supported
+late NUT/system integration performs driver shutdown/return if supported
 ```
 
-The agent SHALL NOT call `upsdrvctl shutdown` while the normal writable filesystem/runtime stack is still active.
+The long-running agent does not call `upsdrvctl shutdown` or substitute `load.off`/`shutdown.return` during ordinary runtime.
 
-NUT documents `upsdrvctl shutdown` as a final shutdown-stage operation intended after the system is prepared to lose power.
+## 5. Commit/FSD semantics
 
-## 6. FSD is the point of no return
+`SHUTDOWN_COMMITTED` is persisted before the first destructive project side effect.
 
-NUT explicitly treats FSD as latched shutdown intent. Therefore:
+Before project commit/FSD, sufficiently reconciled restored utility may cancel an outage according to `docs/POWER_POLICY.md`. Once the committed transaction advances to FSD, the project does not attempt to undo FSD; it completes/reconciles the shutdown transaction and later recovers through the normal recovery gates.
 
-- before the project calls `upsmon -c fsd`, restored utility may cancel an uncommitted outage after reconciliation
-- once FSD has been requested, the project SHALL NOT attempt to "undo" FSD
-- after FSD, the system proceeds through the committed shutdown/power-cycle path
-
-This aligns project `SHUTDOWN_COMMITTED` with a one-way shutdown transaction.
-
-## 7. Pre-FSD host ordering
-
-NUT secondaries normally react to FSD as a group. Therefore exact individual shutdown ordering among NUT secondaries is not guaranteed by the controller.
+## 6. Pre-FSD host ordering
 
 v0.1 rules:
 
-1. Hosts using `shutdown.method: ssh` or controlled `command` adapters that must stop before the NUT shutdown wave are handled before FSD.
-2. Hosts using `shutdown.method: nut` join the NUT secondary shutdown wave when FSD is set.
-3. The controller is the NUT primary and shuts down after secondary synchronization.
+1. accepted `shutdown.method: ssh` hosts that must stop before the NUT wave are processed in deterministic configured priority order;
+2. `shutdown.method: nut` hosts join the NUT-secondary FSD group;
+3. `shutdown.method: none` receives no controller-issued shutdown;
+4. armed `shutdown.method: command` is rejected;
+5. the controller/NUT primary shuts down after the secondary synchronization path.
 
-The UI SHALL clearly distinguish:
+The UI/plan should distinguish:
 
 ```text
-pre-FSD ordered hosts
+pre-FSD ordered SSH hosts
 NUT-secondary shutdown group
 controller/primary last
 ```
 
-It SHALL NOT present a false exact ordering among NUT secondaries.
+It must not promise exact ordering among NUT secondaries inside the same FSD wave.
 
-## 8. HOSTSYNC and FINALDELAY
+## 7. HOSTSYNC and FINALDELAY
 
-`HOSTSYNC` and `FINALDELAY` are safety parameters, not arbitrary cosmetic delays.
+The canonical project configuration contains:
 
-- `HOSTSYNC` bounds how long the primary waits for secondaries to disconnect during critical shutdown.
+```yaml
+nut:
+  hosts_sync_seconds: 60
+  final_delay_seconds: 15
+```
+
+The installer renders these values into project-managed `upsmon.conf` as NUT `HOSTSYNC` and `FINALDELAY`. Integration tests verify that the NUT configuration and project configuration do not silently drift.
+
+These values are safety timing controls:
+
+- `HOSTSYNC` bounds primary waiting for secondaries during critical shutdown;
 - `FINALDELAY` delays the primary local shutdown command after synchronization.
 
-The installer SHOULD use conservative values appropriate to the selected profile and SHALL expose them in advanced configuration.
+Excessively large values can consume UPS runtime and are therefore range-validated.
 
-The project SHALL NOT set excessively large values that risk battery exhaustion.
+## 8. Final UPS output handling
 
-For devices with long shutdown procedures, use device/NUT-supported mechanisms where possible rather than assuming a larger primary delay always proves the remote filesystem is safe.
-
-## 9. Final UPS output shutdown
-
-The normal automatic project path SHALL NOT directly issue:
+The normal automatic project path does not directly issue from the running agent:
 
 ```text
 upscmd ... load.off
@@ -149,17 +132,9 @@ upscmd ... shutdown.return
 upsdrvctl shutdown
 ```
 
-from the long-running agent.
+Final output shutdown/return is delegated to the distribution-supported NUT/system shutdown integration after the OS is committed to shutdown.
 
-Instead, the final UPS shutdown is delegated to the distribution's supported NUT/system shutdown integration.
-
-Where systemd NUT driver instances are in use, the implementation SHALL follow current distro/NUT service integration rather than starting conflicting manual driver processes.
-
-## 10. UPS capability validation
-
-Automatic unattended controller power-cycle recovery depends on the UPS/driver being able to perform a safe shutdown/return sequence.
-
-Installation/arming validation SHALL classify the local UPS profile as one of:
+## 9. UPS capability classification
 
 ```text
 POWER_CYCLE_VERIFIED
@@ -167,101 +142,46 @@ POWER_CYCLE_UNVERIFIED
 MONITOR_ONLY
 ```
 
-### POWER_CYCLE_VERIFIED
+`POWER_CYCLE_VERIFIED` requires real deployment evidence that the UPS/driver/output-return path behaves correctly. QEMU, NUT `dummy-ups`, or USB simulation cannot establish the electrical output-return behavior of a real UPS.
 
-The UPS/driver shutdown-return behavior has been validated for the deployment. Full controller shutdown + automatic reboot recovery may be armed.
+If output return is unverified or unavailable, unattended controller power-off requires another verified automatic restart mechanism or the controller must remain running according to policy.
 
-### POWER_CYCLE_UNVERIFIED
+## 10. Existing-NUT and remote-NUT safety
 
-NUT monitoring works but UPS output-cycle behavior has not been confirmed. The system SHALL remain in dry-run or require an explicit administrator acknowledgement before relying on controller power-off for unattended recovery.
+### Existing local NUT
 
-### MONITOR_ONLY
+The project preserves existing configuration and validates primary ownership before FSD. Because `upsmon -c fsd` is process-wide, configurations with multiple primary/master monitor entries are rejected for automatic FSD when ownership is ambiguous.
 
-The UPS cannot reliably power-cycle the protected output through NUT. Automatic behavior SHALL NOT assume that a powered-off controller will later reboot merely because utility returns.
+### Remote NUT server
 
-In this profile, controller shutdown/recovery policy must use an alternate verified mechanism or remain running.
+Remote-client mode does not automatically become primary. It does not issue remote FSD/output-off in v0.1 unless a future explicitly validated authority model is implemented. The remote primary retains final UPS shutdown ownership.
 
-## 11. Remote NUT server mode
-
-When the controller monitors a UPS served by another NUT system:
-
-- this project is not automatically the NUT primary
-- it SHALL NOT issue FSD to the remote UPS unless explicitly configured and validated as the designated shutdown authority
-- it SHALL NOT issue driver shutdown/output-off commands on a remote server in v0.1
-- the remote NUT primary retains final UPS shutdown ownership
-
-The agent may still use remote NUT status as input for local managed-host policy.
-
-## 12. Synology behavior
+## 11. Synology
 
 For `shutdown.method: nut`:
 
-- Synology receives UPS state from the controller's `upsd`
-- Synology shuts down through DSM's native NUT client behavior
-- the agent SHALL NOT send a duplicate SSH shutdown to the NAS
-- Synology is considered part of the NUT-secondary shutdown group
+- DSM receives UPS state from controller `upsd`;
+- DSM owns its native shutdown after FSD/critical state;
+- the agent does not send duplicate SSH shutdown;
+- the NAS is part of the NUT-secondary group;
+- the compatibility account remains monitor-only.
 
-The Synology monitor account must not receive SET, FSD, or unrestricted instant-command privileges.
+Real DSM behavior is still a physical release gate.
 
-## 13. Manual dangerous commands
+## 12. Failure handling
 
-Commands that can drop load or alter UPS shutdown state require:
+If an accepted pre-FSD SSH host cannot be reconciled/shut down after bounded attempts, the project does not silently advance to FSD; the unresolved action can drive `FAILED_SAFE` according to policy.
 
-- Cockpit authorization
-- explicit user confirmation
-- local privileged helper/agent authorization
-- journald audit event
-- rejection while they would conflict with an active power transaction unless the command is an explicit emergency action
+If FSD request fails after project shutdown commit, persist the failure, apply bounded recovery/retry for the validated primary path, surface a safety-critical error, and do not substitute an immediate direct UPS load-off.
 
-They are never used by health autofix.
+Loss of NUT communication never clears a committed transaction or proves utility restoration.
 
-## 14. Failure handling
+## 13. Acceptance
 
-### FSD request fails
+Required software/integration coverage includes primary + secondary FSD generation, Synology monitor-only privileges, canonical HOSTSYNC/FINALDELAY rendering, existing-NUT multi-primary rejection, restored-power commit semantics and remote-client no-FSD behavior.
 
-If `upsmon -c fsd` fails after `SHUTDOWN_COMMITTED`:
+Real output shutdown/return and real DSM behavior are validated through `docs/HARDWARE_ACCEPTANCE.md`.
 
-- persist the failure
-- retry only according to bounded policy
-- continue protecting already-requested host shutdown state
-- surface a safety-critical error
-- do not substitute a direct `load.off`
+## 14. v0.1 decision
 
-### Primary upsmon unavailable
-
-Attempt bounded service recovery. If trusted primary shutdown ownership cannot be restored, enter `FAILED_SAFE` for automatic UPS-output actions.
-
-### NUT communications lost before FSD
-
-Normalize UPS state to `UNKNOWN`. Do not assume utility restoration.
-
-### NUT communications lost after shutdown commit
-
-Do not clear the committed transaction. Reconcile services/state and continue only through verified safe ownership paths.
-
-## 15. Acceptance tests
-
-At minimum test:
-
-```text
-primary + one secondary normal FSD
-primary + multiple secondaries
-secondary fails to disconnect before HOSTSYNC
-power returns before FSD
-power returns after FSD
-agent restart before FSD
-agent/controller interruption after FSD
-primary upsmon unavailable
-UPS driver unavailable
-POWER_CYCLE_VERIFIED shutdown-return hardware test
-remote NUT mode does not issue unauthorized FSD/output-off
-Synology receives secondary shutdown without duplicate SSH action
-```
-
-## 16. v0.1 decision
-
-The v0.1 safety model is deliberately conservative:
-
-> **The agent owns policy and pre-FSD orchestration; NUT primary/secondary semantics own FSD propagation and operating-system shutdown; the late NUT/system shutdown path owns final UPS output power-off.**
-
-This avoids competing shutdown authorities and preserves standard NUT behavior.
+> The agent owns policy and accepted pre-FSD SSH orchestration; NUT primary/secondary semantics own FSD propagation and operating-system shutdown; the late NUT/system path owns final UPS output power handling.
