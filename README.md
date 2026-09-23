@@ -136,7 +136,7 @@ Real DSM hardware acceptance is still required before v0.1 release.
 
 ## Testing and release integrity
 
-CI currently gates Go unit/vet tests, strict configuration/NUT integration, installer regression tests, Ubuntu 24.04 NUT `dummy-ups` + systemd + Cockpit E2E, multi-architecture runtime smoke, Cockpit TypeScript/build validation with locked dependencies, and reproducible package/checksum generation.
+CI currently gates Go unit/vet tests, strict configuration/NUT integration, installer regression tests, Ubuntu 24.04 NUT `dummy-ups` + systemd + Cockpit E2E, multi-architecture runtime smoke, Cockpit TypeScript/build validation with locked dependencies, reproducible package/checksum generation, and a systemd-enabled Debian-package installation matrix on **Debian 12, Debian 13, Ubuntu 24.04, and Ubuntu 26.04**. The distro matrix installs the generated `.deb` through APT, runs safe `dry-run` setup with a NUT dummy UPS, verifies services/health/Cockpit assets, and repeats setup for idempotency.
 
 GitHub Actions are pinned to immutable commit SHAs and monitored by Dependabot. Cockpit dependencies are locked with `package-lock.json` and CI/package builds use `npm ci`.
 
