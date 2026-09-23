@@ -38,11 +38,12 @@ The project license is already selected: **GNU AGPL-3.0-or-later** with a root `
 | Installer | READY | default/silent/TUI share one transactional backend |
 | Interrupted installation | READY | durable pending marker and boot-time rollback/recovery guard |
 | systemd environment validation | READY | real install rejects environments where systemd is not PID 1 before transaction state is created |
+| Debian-family package install matrix | READY | Debian 12/13 and Ubuntu 24.04/26.04 systemd containers install generated `.deb`, resolve APT deps, configure NUT dummy UPS, verify services/health/Cockpit and idempotent setup |
 | UPS discovery | READY | NUT scanner parsing, explicit driver/port and ambiguity failure |
 | NUT network policy | READY | trusted-LAN default plus additive restricted nftables mode |
 | Service autostart | READY | systemd enable/start validation and health probation |
 | Synology software integration | READY | monitor-only NUT-secondary account and ownership tests |
-| amd64 software runtime | READY | native runtime + Ubuntu systemd/NUT E2E |
+| amd64 software runtime | READY | native runtime + Ubuntu systemd/NUT E2E + Debian-family package matrix |
 | arm64 software runtime | READY | build + QEMU runtime smoke |
 | riscv64 software runtime | READY | build + QEMU runtime smoke |
 | Build supply chain | READY | first-party Actions pinned to immutable SHAs; Dependabot enabled |
@@ -112,6 +113,8 @@ sudo ./install.sh --silent
 
 Implemented properties include clean-OS dependency installation, supported platform/architecture checks, local/remote/existing NUT profiles, UPS discovery/explicit selection, Synology opt-in, trusted/restricted networking, one transactional backend, service enablement, health probation, known-good promotion, normal rollback, durable sudden-power-loss recovery, idempotent reinstall and early rejection when systemd is not the active PID-1 system manager.
 
+The Debian-package acceptance workflow additionally boots systemd-enabled Debian 12/13 and Ubuntu 24.04/26.04 containers, installs the generated amd64 `.deb` via APT, configures a NUT dummy UPS, runs safe dry-run setup, verifies agent/health/Cockpit state, and repeats setup for idempotency.
+
 Fresh installations intentionally contain:
 
 ```yaml
@@ -141,7 +144,7 @@ The current agent Unix socket is deliberately smaller than older design drafts i
 
 ## 7. Automated acceptance status
 
-Automated coverage includes Go unit/vet tests, canonical configuration and NUT generation tests, config transaction reboot/rollback tests, torn/corrupt state fallback, outage/recovery fault simulation, communication loss, AC debounce, max-on-battery reboot continuity, partial-recovery power bounce, network/health recovery gates, durable SSH/FSD/WoL ordering, bounded shutdown retries, wake delay, dependency-cycle rejection, Synology privilege checks, `HOSTSYNC`/`FINALDELAY`, multi-primary rejection, installer discovery/network/rollback tests, Ubuntu 24.04 NUT `dummy-ups` + systemd + Cockpit E2E, amd64 native runtime smoke, arm64/riscv64 QEMU runtime smoke, locked Cockpit typecheck/build and package/checksum validation.
+Automated coverage includes Go unit/vet tests, canonical configuration and NUT generation tests, config transaction reboot/rollback tests, torn/corrupt state fallback, outage/recovery fault simulation, communication loss, AC debounce, max-on-battery reboot continuity, partial-recovery power bounce, network/health recovery gates, durable SSH/FSD/WoL ordering, bounded shutdown retries, wake delay, dependency-cycle rejection, Synology privilege checks, `HOSTSYNC`/`FINALDELAY`, multi-primary rejection, installer discovery/network/rollback tests, Ubuntu 24.04 NUT `dummy-ups` + systemd + Cockpit E2E, the Debian 12/13 + Ubuntu 24.04/26.04 package-install/systemd matrix, amd64 native runtime smoke, arm64/riscv64 QEMU runtime smoke, locked Cockpit typecheck/build and package/checksum validation.
 
 Unsupported future capabilities are covered by negative/fail-closed validation rather than positive armed-execution tests.
 
@@ -205,6 +208,7 @@ GitHub Actions are pinned to immutable commit SHAs. Dependabot monitors GitHub A
 [x] immutable Actions + dependency monitoring implemented
 [x] npm lockfile / npm ci reproducibility implemented
 [x] multi-arch archive + Debian package + checksum pipeline implemented
+[x] Debian 12/13 + Ubuntu 24.04/26.04 systemd package-install matrix implemented
 [x] AGPL-3.0-or-later root license present
 [x] automated software acceptance green
 [ ] physical amd64 UPS acceptance retained
