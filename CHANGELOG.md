@@ -22,6 +22,8 @@ All notable project changes are recorded here while the project is pre-release.
 - Optional project-owned restricted NUT nftables policy with IPv4/IPv6 coverage and no host firewall flush.
 - Read-only-first Cockpit React/PatternFly management UI with sanitized power plan, health/revision/log views and privileged confirmed config rollback.
 - Reproducible amd64/arm64/riscv64 appliance packaging with SHA256 checksums and prebuilt Cockpit assets.
+- Debian `.deb` release packages for amd64/arm64/riscv64 with explicit post-install setup and no automatic UPS arming.
+- Manual GitHub testing-release workflow that publishes verified artifacts as a pre-release channel.
 - Full armed orchestration controller and runtime wiring: durable per-host shutdown intent, primary FSD ownership, restart reconciliation, recovery gates and ordered persistent WoL recovery.
 - Network dependency addresses and fail-closed armed preflight validation.
 - Fault tests proving power-bounce recovery stop, ambiguous shutdown reconciliation, outage-grace behavior across reboot and post-reboot AC-stability reset.
@@ -41,6 +43,7 @@ All notable project changes are recorded here while the project is pre-release.
 - New installations default to dry-run; the first-install TUI deliberately defers `armed` mode until real devices and physical topology are verified.
 - NUT `upsd` listener generation follows the selected IPv4/IPv6 network policy.
 - Installer rollback includes the project-owned firewall service/rules along with binaries, config, Cockpit assets, systemd state and NUT files.
+- Release bundles now include the project license and package checksums cover both appliance archives and Debian packages.
 
 ### Security / safety
 

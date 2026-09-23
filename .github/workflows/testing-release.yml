@@ -1,0 +1,91 @@
+name: Testing Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Optional testing tag (default: testing-<run>-<sha>)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  prerelease:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.x'
+          cache-dependency-path: agent/go.sum
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.x'
+      - name: Resolve testing release tag
+        id: version
+        shell: bash
+        run: |
+          requested='${{ inputs.tag }}'
+          if [[ -n "$requested" ]]; then
+            tag="$requested"
+          else
+            tag="testing-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}"
+          fi
+          if [[ ! "$tag" =~ ^testing-[0-9A-Za-z._-]+$ ]]; then
+            echo 'Testing release tag must start with testing- and contain only letters, numbers, dot, underscore, or hyphen.' >&2
+            exit 1
+          fi
+          echo "tag=$tag" >>"$GITHUB_OUTPUT"
+      - name: Build Cockpit UI
+        working-directory: cockpit
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run typecheck
+          npm run build
+      - name: Build appliance bundles
+        env:
+          VERSION: ${{ steps.version.outputs.tag }}
+        run: ./scripts/release/build-bundles.sh
+      - name: Build Debian packages
+        env:
+          VERSION: ${{ steps.version.outputs.tag }}
+        run: bash ./scripts/release/build-deb.sh
+      - name: Verify release artifacts
+        run: |
+          cd release
+          sha256sum -c SHA256SUMS
+          test "$(find . -maxdepth 1 -name '*.tar.gz' | wc -l)" -eq 3
+          test "$(find . -maxdepth 1 -name '*.deb' | wc -l)" -eq 3
+          for d in *.deb; do dpkg-deb --info "$d" >/dev/null; done
+      - name: Smoke-test installed amd64 Debian package
+        run: |
+          deb="$(find release -maxdepth 1 -type f -name '*_amd64.deb' -print -quit)"
+          test -n "$deb"
+          sudo apt-get update
+          sudo apt-get install -y "$PWD/$deb"
+          sudo cockpit-ups-wol-setup --check --profile local-server
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cockpit-ups-wol-testing-${{ steps.version.outputs.tag }}
+          path: |
+            release/*.tar.gz
+            release/*.deb
+            release/SHA256SUMS
+            release/RELEASE_NOTES.md
+          if-no-files-found: error
+      - name: Publish GitHub pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            release/*.tar.gz release/*.deb release/SHA256SUMS \
+            --target "$GITHUB_SHA" \
+            --title "$RELEASE_TAG" \
+            --notes-file release/RELEASE_NOTES.md \
+            --prerelease
