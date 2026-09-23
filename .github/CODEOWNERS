@@ -1,0 +1,16 @@
+# Default project ownership
+* @ami3go
+
+# Safety-critical runtime, installer and policy surfaces
+/agent/ @ami3go
+/config/ @ami3go
+/schemas/ @ami3go
+/scripts/ @ami3go
+/install.sh @ami3go
+
+# Cockpit management UI
+/cockpit/ @ami3go
+
+# CI, packaging and repository governance
+/.github/ @ami3go
+/packaging/ @ami3go

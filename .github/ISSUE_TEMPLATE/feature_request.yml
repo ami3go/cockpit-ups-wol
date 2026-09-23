@@ -1,0 +1,40 @@
+name: Feature request
+description: Propose a new capability or behavior
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / use case
+      description: What operational problem should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the desired behavior without assuming a specific implementation if alternatives are possible.
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety and recovery considerations
+      description: Consider power loss during the operation, interrupted boot, rollback, NUT/FSD authority, and ambiguous state.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional approaches or existing projects that may be reusable.
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Project constraints
+      options:
+        - label: I understand new installations must remain non-destructive/dry-run by default.
+          required: true
+        - label: I understand safety-critical behavior needs automated failure-path tests and may require physical acceptance.
+          required: true

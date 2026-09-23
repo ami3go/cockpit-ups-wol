@@ -1,0 +1,58 @@
+name: Bug report
+description: Report a reproducible defect or unsafe behavior
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Do not include credentials, SSH keys, private UPS data, or sensitive infrastructure details.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened, and what did you expect instead?
+      placeholder: Describe the problem clearly.
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Operating mode
+      options:
+        - monitor
+        - dry-run
+        - armed
+        - maintenance
+        - installation / upgrade
+        - not applicable
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Controller architecture/OS, NUT role, UPS model/driver, Cockpit version, and Synology/other managed devices if relevant. Redact sensitive values.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest reliable sequence that reproduces the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Relevant logs or state
+      description: Paste sanitized logs/status output. Remove credentials, private addresses if sensitive, and secret material.
+      render: shell
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety impact
+      options:
+        - label: The issue may affect shutdown, FSD, recovery, Wake-on-LAN, rollback, or privileged execution.
+        - label: I verified that the report contains no secrets or private keys.
+          required: true
