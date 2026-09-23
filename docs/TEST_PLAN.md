@@ -9,6 +9,7 @@ unit
 component/integration
 state-machine/fault injection
 clean-OS/systemd installer E2E
+Debian-family systemd package-install matrix
 multi-architecture runtime smoke
 optional USB-UPS-Simulator hardware-in-loop
 real UPS / DSM physical acceptance
@@ -262,12 +263,25 @@ Automated installer coverage includes:
 - interrupted-install durable marker and boot rollback;
 - package/checksum verification.
 
-The existing Ubuntu 24.04 E2E uses NUT `dummy-ups`, real systemd and Cockpit. Additional distro/package matrices may extend this without changing the real-hardware gate.
+The Ubuntu 24.04 E2E uses NUT `dummy-ups`, real systemd and Cockpit to validate the full source-tree installer transaction and rollback path.
+
+The dedicated systemd package-install matrix must pass on:
+
+```text
+Debian 12
+Debian 13
+Ubuntu 24.04
+Ubuntu 26.04
+```
+
+Each matrix job boots a privileged systemd-enabled container, installs the generated amd64 `.deb` through APT with declared runtime dependencies, runs the packaged setup self-check, configures a NUT dummy UPS reporting online state, installs in safe existing-NUT/dry-run mode, verifies agent service + health timer + Cockpit bundle + configuration/CLI health, and repeats setup to prove idempotency. Failure diagnostics must include relevant systemd/service/journal/installer state.
+
+This matrix validates package/dependency/systemd integration; it does not replace physical UPS acceptance.
 
 ## 15. Multi-architecture gates
 
 ```text
-amd64: native build/runtime smoke + systemd installer E2E where defined
+amd64: native build/runtime smoke + Ubuntu E2E + Debian-family package matrix
 arm64: build + QEMU runtime smoke
 riscv64: build + QEMU runtime smoke
 ```
@@ -309,6 +323,7 @@ A public v0.1 requires:
 ```text
 [x] project license selected: AGPL-3.0-or-later
 [x] mandatory software/unit/integration/fault tests green
+[x] Debian 12/13 + Ubuntu 24.04/26.04 package-install matrix green
 [x] package/checksum pipeline green
 [ ] amd64 real UPS acceptance retained
 [ ] arm64 real UPS acceptance retained
