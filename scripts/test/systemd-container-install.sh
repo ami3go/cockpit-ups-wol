@@ -78,8 +78,11 @@ echo "systemd ready in $IMAGE"
 docker cp "$DEB" "$NAME:/tmp/cockpit-ups-wol.deb"
 docker exec "$NAME" bash -Eeuo pipefail -c '
   export DEBIAN_FRONTEND=noninteractive
+  test -s /tmp/cockpit-ups-wol.deb
+  dpkg-deb --info /tmp/cockpit-ups-wol.deb >/dev/null
   apt-get update
-  apt-get install -y /tmp/cockpit-ups-wol.deb
+  cd /tmp
+  apt-get install -y ./cockpit-ups-wol.deb
   cockpit-ups-wol-setup --check --profile existing
 '
 
