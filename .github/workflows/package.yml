@@ -38,7 +38,7 @@ jobs:
       - name: Build multi-arch Debian packages
         env:
           VERSION: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('snapshot-{0}', github.sha) }}
-        run: ./scripts/release/build-deb.sh
+        run: bash ./scripts/release/build-deb.sh
       - name: Scan shipped Go binaries
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
