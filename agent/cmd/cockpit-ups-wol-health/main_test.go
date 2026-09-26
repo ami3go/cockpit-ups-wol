@@ -24,7 +24,10 @@ func TestRequiredUnitsForLocalServerRestricted(t *testing.T) {
 	}
 }
 
-func TestRequiredUnitsForRemoteClient(t *testing.T) {
+// remote-client, like existing, never configures local NUT files (the agent
+// polls the remote UPS directly), so local upsmon has nothing to monitor and
+// must not be a required unit here.
+func TestRequiredUnitsForRemoteClientDoesNotTakeOwnershipOfNUTUnits(t *testing.T) {
 	cfg := config.Config{}
 	cfg.NUT.Profile = "remote-client"
 	cfg.NUT.Network.Mode = "trusted-lan"
@@ -32,7 +35,6 @@ func TestRequiredUnitsForRemoteClient(t *testing.T) {
 	want := []string{
 		"cockpit-ups-wol-agent.service",
 		"cockpit.socket",
-		"nut-monitor.service",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("units=%v want %v", got, want)

@@ -149,7 +149,10 @@ systemd_reload_enable(){
       enable_if_exists nut-monitor.service || true
       ;;
     remote-client)
-      enable_if_exists nut-monitor.service || true
+      # remote-client leaves local NUT files unconfigured (see nut.sh), so
+      # local upsmon has nothing valid to monitor: it would exit immediately
+      # on every start and starve the health autofix's repair budget.
+      disable_if_exists nut-monitor.service
       ;;
   esac
 

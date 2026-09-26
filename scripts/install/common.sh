@@ -93,5 +93,6 @@ install_systemd_units(){
   install_nut_runtime_group_dropin
 }
 unit_exists(){ systemctl list-unit-files "$1" --no-legend 2>/dev/null|grep -q "^$1"; }; enable_if_exists(){ unit_exists "$1"&&systemctl enable --now "$1"; }
+disable_if_exists(){ unit_exists "$1"&&systemctl disable --now "$1" >/dev/null 2>&1; true; }
 mark_initial_known_good(){ log "recording probation-tested configuration as known-good"; "$LIBEXEC_DIR/cockpit-ups-wolctl" --config "$ETC_DIR/config.yaml" --history-dir "$STATE_DIR/config-history" config-bootstrap >/dev/null; }
 final_report(){ :; }

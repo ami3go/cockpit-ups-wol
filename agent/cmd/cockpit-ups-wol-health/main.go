@@ -81,8 +81,6 @@ func requiredUnitsForConfig(cfg config.Config) []string {
 			"nut-server.service",
 			"nut-monitor.service",
 		)
-	case "remote-client":
-		units = append(units, "nut-monitor.service")
 	}
 
 	if cfg.NUT.Network.Mode == "restricted" {
